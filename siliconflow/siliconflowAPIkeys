@@ -1,0 +1,395 @@
+#!/bin/bash
+# 用法：./siliconflowAPIKeys  [key-file]  默认同级目录下 siliconflow.keys
+#       ./siliconflowAPIKeys  stop        停服务
+#       ./siliconflowAPIKeys  status      看服务在不在
+
+set -euo pipefail
+
+
+
+
+port=3699
+
+
+
+script_dir=$(dirname "$(readlink -f "$0")")
+ask2siliconflow_path="$script_dir/Ask2Siliconflow"
+key_file="${1:-$script_dir/siliconflow.keys}"
+pid_file="/dev/shm/2Siliconflow/ncat.pid"
+lock_file="/dev/shm/2Siliconflow/LOCK"   # 旧版锁文件，启动前清掉
+
+# --------- 生成脚本 ---------
+gen_script(){
+    cat > "$ask2siliconflow_path" << 'Ask2Siliconflow'
+#!/bin/bash
+# curl -v http://localhost:3699/v1/chat/completions \                                                                                                                                           ─╯ 
+#   -H "Content-Type: application/json" \
+#   -H "Authorization: Bearer sk-abcd" \
+#   -d $(echo '{
+#         "model": "Pro/moonshotai/Kimi-K2-Instruct-0905",
+#         "messages": [{"role": "user", "content": "你好，我来自bash客户端发来的请求！"}],
+#         "stream": false,
+#         "max_tokens": 50,
+#         "enable_thinking": false }'|jq -c .)
+# ---------- 0. 路径常量 ----------
+LOCKFILE="/dev/shm/2Siliconflow/LOCK"
+INDEXFILE="/dev/shm/2Siliconflow/INDEX"
+PID=$$
+START_MS="$(date '+%s%3N')"
+REQUEST_TIMES=0
+# ---------- 1. 加锁 / 解锁 ----------
+acquire_lock() {
+    while true; do
+        if [[ ! -f "$LOCKFILE" ]]; then
+            echo "$PID" >"$LOCKFILE"
+        else
+            first=$(cat  "$LOCKFILE" 2>/dev/null|head -n1 2>/dev/null || echo "")
+            [[ "$first" == "$PID" ]] && break
+            echo "$PID" >>"$LOCKFILE"
+            sleep 0.01
+        fi
+    done
+}
+release_lock() { rm -f "$LOCKFILE"; }
+
+# ---------- 2. 读共享内存 ----------
+read -r KEY_COUNT </dev/shm/2Siliconflow/key_count
+mapfile -t KEYS </dev/shm/2Siliconflow/ALLKEYS
+
+# ---------- 3. 失效索引表 ----------
+declare -A INVALID
+while read -r line; do
+    [[ "$line" =~ ^[0-9]+ ]] && INVALID["${line%% *}"]=1
+done </dev/shm/2Siliconflow/InvalidKeys 2>/dev/null
+
+# ---------- 4. 原子取下一个有效下标 ----------
+next_index() {
+    local idx
+    [[ -f "$INDEXFILE" ]] && read -r idx <"$INDEXFILE" || idx=0
+    ((idx >= KEY_COUNT)) && idx=0
+    echo $((idx + 1)) >"$INDEXFILE"
+    echo "$idx"
+}
+acquire_lock
+while true; do
+    index=$(next_index)
+    [[ -z "${INVALID[$index]}" ]] && break
+done
+APIKEY="${KEYS[$index]}"
+release_lock
+
+# ---------- 5. 重建 Authorization ----------
+Authorization_rebuilt() { printf "Bearer %s" "$APIKEY"; }
+Host_rebuilt() { printf "api.siliconflow.cn"; }
+# User-Agent_rebuilt(){ printf "curl/7.88.1"; }
+
+# ---------- 6. HTTP 解析与重建 ----------
+declare -A REQUEST
+declare -A RESPONSE_HEAD
+process_head() {
+    local arr_name="${1:-REQUEST}"
+    local -n _REQ=$arr_name >/dev/null 2>&1
+    while IFS=$'\r' read -r line; do
+        # printf 'proc:%s\n' "$line" >&2
+        [[ -z "$line" ]] && break
+        IFS=' ' read -ra arr <<<"$line"
+        case "${arr[0]}" in
+        GET | POST | PUT | DELETE | HEAD | OPTIONS | PATCH | TRACE | CONNECT)
+            [[ "${arr[0]}" != "POST" ]] && echo '不被支持的请求！' >&2 && exit 127
+            _REQ[METHOD]="${arr[0]}"
+            _REQ[PATH]="${arr[1]}"
+            _REQ[HTTP_VERSION]="${arr[2]}"
+            ;;
+        'HTTP/'*)
+            _REQ[HTTP_VERSION]="${arr[0]}"
+            _REQ[STATUS_CODE]="${arr[1]}"
+            _REQ[STATUS_TEXT]="${arr[*]:2}"
+            ;;
+        *) _REQ["${arr[0]%:}"]="${line#*: }" ;;
+        esac
+    done
+}
+
+rebuild_head() {
+    # 默认仍用 REQUEST 数组，也可通过第一个参数指定别的关联数组名
+    local arr_name="${1:-REQUEST}"
+    local -n _REQ=$arr_name >/dev/null 2>&1
+
+    local h
+
+    # 1. 根据解析时到底存的是“请求行”还是“状态行”决定第一行格式
+    if [[ -n ${_REQ[METHOD]} ]]; then
+        # 请求报文
+        h="${_REQ[METHOD]} ${_REQ[PATH]} ${_REQ[HTTP_VERSION]}\r\n"
+    elif [[ -n ${_REQ[HTTP_VERSION]} ]]; then
+        # 响应报文
+        h="${_REQ[HTTP_VERSION]} ${_REQ[STATUS_CODE]} ${_REQ[STATUS_TEXT]}\r\n"
+    else
+        h="" # 兜底，行为与原脚本一致：空行开头
+    fi
+
+    # 2. 重建普通头部（跳过五项内置键，其余按哈希表遍历顺序）
+    for k in "${!_REQ[@]}"; do
+        [[ "$k" =~ ^(METHOD|PATH|HTTP_VERSION|STATUS_CODE|STATUS_TEXT)$ ]] && continue
+        local v=${_REQ[$k]}
+
+        # 如果用户给某头部定义了名为 "${k}_rebuilt" 的函数，就调用它拿新值
+        local fn="${k}_rebuilt"
+        declare -f "$fn" >/dev/null && v=$($fn)
+
+        h+="$k: $v\r\n"
+    done
+
+    # 3. 结尾空行
+    h+="\r\n"
+
+    # 4. 原样输出，不带额外换行
+    printf "%s" "$h"
+}
+# ---------- 7. 转发 ----------
+turn2siliconflow() {
+    exec 3<>/dev/tcp/api.siliconflow.cn/80
+
+    # 发请求
+    echo -en "$1" >&3
+    printf '%s' "$2" >&3
+
+    # 读响应
+    process_head 'RESPONSE_HEAD' <&3
+    response_head=$(rebuild_head 'RESPONSE_HEAD')
+    response=$(dd bs=1 count="${RESPONSE_HEAD[Content-Length]}" 2>/dev/null <&3)$'\r\n\r\n'
+
+    exec 3<&-; exec 3>&-
+
+    status=${RESPONSE_HEAD[STATUS_CODE]}
+    case $status in
+    401|403)
+    # set -x
+        # 401 是 Unauthorized，403 是 Forbidden
+        # 30011 模型前缀错误 → 降级
+        if jq -e '.code == 30011' <<<"$response" >/dev/null 2>&1; then
+            # 清理模型名前缀的 '/' 和 'Pro/'
+            downgraded="$(jq -c '
+            .model |= (
+                if startswith("Pro/") then .[4:] else . end |
+                if startswith("/") then .[1:] else . end
+            )
+            ' <<<"$2")"
+            # sleep 5
+            { main; } <<<"$(echo -en "$1";printf '%s' "$downgraded")"
+            return $?
+        else
+            echo "$index ${KEYS[$index]}" >>/dev/shm/2Siliconflow/InvalidKeys
+        fi
+        ;;
+    429|400|413|500|502|503|504)
+        if [[ $status == 400 ]]; then
+            # 请求体里带了 enable_thinking → 删掉再重试
+            if jq -e 'has("enable_thinking")' <<<"$2" >/dev/null 2>&1; then
+                downgraded="$(jq -c 'del(.enable_thinking)' <<<"$2")"
+                { main; } <<<"$(echo -en "$1";printf '%s' "$downgraded")"
+                return $?
+            fi
+        fi
+    ;;
+    esac
+
+    echo -en "$response_head"
+    echo -n "$response"
+}
+
+# ---------- 仪表盘函数 ----------
+dashboard_log() {
+    # 真毫秒级时间戳
+    local ts_ms=$(date '+%s%3N')
+    local day_time=$(date -d @"${ts_ms:0:-3}" '+%F %T')
+    local preview="${APIKEY:0:8}********"
+    local inv=${#INVALID[@]}
+    local left=$((KEY_COUNT - inv))
+    END_MS=$(date '+%s%3N')
+    ELAPSED=$((END_MS - START_MS))
+
+    # 彩色阈值
+    local color=$'\033[32m'                         # 默认绿色
+    ((left <= 5)) && color=$'\033[31m'              # 红
+    ((left > 5 && left <= 10)) && color=$'\033[33m' # 黄
+
+    # 表格化输出（空格对齐，方便 tail -f)
+    printf '%s[%s]| idx=%03d | key=%s | invalid=%03d | left=%03d | code=%s | tries=%s | elapsed=%sms '$'\033[0m''\n' \
+        "$color" "$day_time" "$index" "$preview" "$inv" "$left" "$status" "$REQUEST_TIMES" "$ELAPSED" \
+        >>/dev/shm/2Siliconflow/log
+}
+
+_auth() {
+    if [[ "${REQUEST[Authorization]}" =~ ^Bearer[[:space:]]+sk- ]]; then
+        :
+    else
+        exit 0 # 静默退出，不响应，防止端口被扫描
+    fi
+}
+
+# ---------- 8. 主程序 ----------
+main() {
+    ((REQUEST_TIMES++))
+    process_head 'REQUEST'
+    _auth # 简单鉴权
+    # 原样读取 body
+    body="$(dd bs=1 count="${REQUEST[Content-Length]}" 2>/dev/null | jq -c .)"
+    REQUEST['Content-Length']="$(printf '%s' "$body" | wc -c)"
+    # 直接转发
+    turn2siliconflow "$(rebuild_head)" "$body"$'\r\n' # 重建head
+}
+
+main
+dashboard_log
+Ask2Siliconflow
+}
+
+# --------- 彩色日志 ---------
+log_info(){ echo -e "\033[36m[$(date '+%F %T')]\033[0m $*"; }
+log_err(){ echo -e "\033[31m[$(date '+%F %T')]\033[0m $*" >&2; }
+log_succ(){ echo -e "\033[32m[$(date '+%F %T')]\033[0m $*"; }
+
+# --------- 依赖检查 ---------
+install_deps(){
+    for cmd in jq ncat; do
+        if ! command -v "$cmd" &>/dev/null; then
+            log_info "安装缺失依赖 $cmd ..."
+            apt-get update -qq && apt-get install -y "$cmd" || {
+                log_err "$cmd 安装失败，请手动解决"
+                exit 1
+            }
+        fi
+    done
+}
+
+# --------- key 文件检查 ---------
+check_keys(){
+    [[ -s $key_file ]] || {
+        log_err "key 文件不存在或为空：$key_file"
+        log_err "请提供一个有效的 key 文件"
+        log_err "每行一个 key，允许注释和空行"
+        log_err "示例：$0 $key_file"
+        exit 1
+    }
+    # 去空行/注释，原子写
+    grep -vE '^(#|$)' "$key_file" > /dev/shm/2Siliconflow/ALLKEYS.tmp
+    mv /dev/shm/2Siliconflow/ALLKEYS.tmp /dev/shm/2Siliconflow/ALLKEYS
+    key_count=$(wc -l < /dev/shm/2Siliconflow/ALLKEYS)
+    [[ $key_count -eq 0 ]] && {
+        log_err "key 文件里没有有效 key"
+        exit 1
+    }
+    echo "$key_count" > /dev/shm/2Siliconflow/key_count
+}
+
+# --------- 可执行检查 ---------
+check_target(){
+    [[ -f $ask2siliconflow_path ]] || {
+        log_info "生成 Ask2Siliconflow 脚本 ..."
+        gen_script
+    }
+    [[ -x $ask2siliconflow_path ]] || {
+        log_info "给 Ask2Siliconflow 加执行权限 ..."
+        chmod +x "$ask2siliconflow_path"
+    }
+}
+
+# --------- 端口检查 ---------
+check_port(){
+    if ss -tuln | awk '{print $5}' | grep -qE ":${port}\>"; then
+        log_err "端口 $port 已被占用"
+        exit 1
+    fi
+}
+
+# --------- 清理旧垃圾 ---------
+cleanup_old(){
+    [[ -f $lock_file ]] && log_info "清理旧锁文件" && rm -f "$lock_file"
+    [[ -d /dev/shm/2Siliconflow/indexs ]] && rm -rf /dev/shm/2Siliconflow/indexs
+    mkdir -p /dev/shm/2Siliconflow/indexs
+    # 空日志文件
+    > /dev/shm/2Siliconflow/log
+    # 空无效 key 表
+    > /dev/shm/2Siliconflow/InvalidKeys
+}
+
+# --------- 后台监控日志 ---------
+tail_log(){
+    log_info "----------- 实时日志 -----------"
+    tail -n 0 -f /dev/shm/2Siliconflow/log &
+    tail_pid=$!
+    # 脚本退出时杀掉 tail
+    trap "kill $tail_pid 2>/dev/null" EXIT
+}
+
+see_log(){ tail -n 0 -f /dev/shm/2Siliconflow/log; }
+
+# --------- 启动服务 ---------
+start_service(){
+    install_deps
+    check_port
+    mkdir -p /dev/shm/2Siliconflow
+    cleanup_old
+    check_keys
+    check_target
+
+    log_info "启动 ncat，监听 0.0.0.0:$port ..."
+    log_info "使用 key 文件：$key_file （共 $(wc -l < /dev/shm/2Siliconflow/ALLKEYS) 个看起来有效的key）"
+    log_info "日志文件：/dev/shm/2Siliconflow/log"
+    log_info "XXX_BASE_URL是这个：http://localhost:$port/v1/"
+    log_info "停止服务：$0 stop"
+    log_info "查看状态：$0 status"
+    log_info "查看日志：$0 log"
+    log_info "如果要更换 key 文件，请先停止服务，替换文件后再启动"
+    log_info "去咸鱼买key，很便宜，二十多就能相当1400余额，比买余额便宜多了！"
+    log_err "XXX_KEY也是要填的（随意填，只要是一个正常key就可以了），目前是没有鉴权的！！！请不要暴漏在公网！"
+    log_err "简单脚本，不需要部署，只针对硅基流动的key！直接运行即可！"
+    log_succ "如果需要修改端口，请修改脚本里的 port 变量！"
+    # 真正后台跑
+    ncat -l "$port" --keep-open --exec "$ask2siliconflow_path" &
+    echo $! > "$pid_file"
+    sleep 0.5
+    if kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+        log_succ "服务已启动！PID=$(cat "$pid_file")"
+    else
+        log_err "启动失败"
+        exit 1
+    fi
+    tail_log
+    wait
+}
+
+# --------- 停止服务 ---------
+stop_service(){
+    [[ -f $pid_file ]] || { log_err "服务未运行"; exit 0; }
+    pid=$(cat "$pid_file")
+    if kill -0 "$pid" 2>/dev/null; then
+        log_info "停止服务 PID=$pid"
+        kill "$pid"
+        rm -f "$pid_file"
+    else
+        log_err "进程 $pid 已不存在"
+        rm -f "$pid_file"
+    fi
+}
+
+# --------- 查看状态 ---------
+status_service(){
+    if [[ -f $pid_file ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+        log_succ "服务运行中，PID=$(cat "$pid_file")"
+    else
+        log_info "服务未运行"
+    fi
+}
+
+# --------- 主入口 ---------
+case "${1:-}" in
+    stop)       stop_service ;;
+    status)     status_service ;;
+    log)        see_log ;;
+    "")         start_service ;;
+    *)          # 把第一个参数当成 key 文件
+                key_file="$1"
+                start_service ;;
+esac

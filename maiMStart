@@ -1,0 +1,75 @@
+#!/bin/bash
+# source ${MaiMStartConfig} # 以后用用作版本管理
+unset dbpath
+__OUser="${SUDO_USER}"
+[[ -n "${__OUser}" ]] && HOME="$(sudo -n -u "${__OUser}" bash -c 'echo ${HOME}')" # 如果被非root用户sudo，获取原用户的HOME
+version="${version:-global}" # global是普通字符
+mongod="$(command -v mongod 2>/dev/null || echo "${MaiM_bin:-${HOME}/.local/MaiM-with-u}/mongod")"
+[[ ! -x "${mongod}" ]] && mongod="${mongod:-${HOME}/.local/MaiM-with-u/bin/mongod}"
+[[ -d "${HOME}/data/db" ]] && dbpath="${HOME}/data/db"
+[[ -d "${MaiM_dbpath}" && -z "${dbpath}" ]] && dbpath="${MaiM_dbpath}"
+[[ -d "${HOME}/.local/MaiM-with-u/data/db" && -z "${dbpath}" ]] && dbpath="${HOME}/.local/MaiM-with-u/data/db"
+[[ -z "${dbpath}" ]] && dbpath="${HOME}/.local/MaiM-with-u/data/db" # 什么路径都没有的情况下
+check_files() {
+    local files=("${HOME}/.mux_type" "${HOME}/.qnumber")
+    for file in "${files[@]}"; do
+        if [[ ! -f "${file}" ]]; then
+            echo "错误：找不到必要文件 ${file}"
+            exit 1
+        fi
+    done
+}
+check_files
+mkdir -p "${dbpath}"
+"${mongod}" --dbpath "${dbpath}" --bind_ip 127.0.0.1 --fork --logpath "${HOME}/data/log.txt"
+sudo napcat start "$(cat "${HOME}/.qnumber")"
+start_session() {
+    local mux=$1
+    local session=$2
+    local cmd=$3
+    case ${mux} in
+        "screen")
+            screen -dmS "${session}" bash -c "${cmd}"
+            ;;
+        "tmux")
+            tmux new -d -s "${session}" bash -c "${cmd}"
+            ;;
+    esac
+}
+mux_type=$(cat "${HOME}/.mux_type")
+adapter_cmd="cd \"${HOME}/MaiM-with-u/MaiBot-Napcat-Adapter\" && source \"${HOME}/MaiM-with-u/MaiBotEnv/bin/activate\" && python main.py"
+bot_cmd="cd \"${HOME}/MaiM-with-u/MaiBot\" && source \"${HOME}/MaiM-with-u/MaiBotEnv/bin/activate\" && python3 bot.py"
+case ${mux_type} in
+    "screen"|"tmux")
+        start_session "${mux_type}" "mmc-adapter" "${adapter_cmd}"
+        start_session "${mux_type}" "mmc" "${bot_cmd}"
+        ;;
+    *)
+        echo "错误：未知的终端复用器类型 '${mux_type}'"
+        echo "TODO：在终端复用器不可用的情况下去查看输出内容（tail -f ）"
+        exit 1
+        #
+        #nohup maimai > maimai.log 2>&1 & # tail -f
+        #disown
+        #
+        ;;
+esac
+echo "启动完成，使用以下命令连接："
+case ${mux_type} in
+    "screen")
+        echo "screen -r mmc          # 主机器人"
+        echo "screen -r mmc-adapter   # 适配器"
+        ;;
+    "tmux")
+        echo "tmux attach -t mmc        # 主机器人"
+        echo "tmux attach -t mmc-adapter # 适配器"
+        ;;
+esac
+echo "当前运行中的服务进程："
+for pid in $(pgrep -f 'python'); do
+    exe=$(readlink -f "/proc/${pid}/exe")
+    cwd=$(readlink -f "/proc/${pid}/cwd")
+    if [[ "${cwd}" == "${HOME}/MaiM-with-u/"* ]]; then
+        echo "PID: ${pid} | 路径: ${exe} | 目录: ${cwd}"
+    fi
+done
