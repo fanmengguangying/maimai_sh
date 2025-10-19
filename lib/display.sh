@@ -799,7 +799,7 @@ display() {
             # [[ -z "$SCREEN" ]] && SCREEN="${SCREEN_BUFFER[*]}" # 会忽略region-restore后面的新输出，放弃
             SCREEN="${SCREEN_BUFFER[*]}"
             # shellcheck disable=SC2059
-            printf "%s" "${SCREEN}" >&"$FD" # 不可以printf "%s" "${SCREEN}"，因为会导致转义字符失效
+            printf "%s" "${SCREEN}" >&"$FD"
             IFS="$__IFS"
             ;;
         "help") # -> Nothing
@@ -913,3 +913,4 @@ Get-StringDisplayWidth() {
     done
     echo "$width"
 }
+# 不写为函数是为了省去函数调用的性能损失，开发时请编辑函数未展开的脚本

@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# 生成自签名证书（如果不存在）
+if [[ ! -f server.key ]] || [[ ! -f server.crt ]]; then
+    echo "生成自签名证书..."
+    openssl req -x509 -newkey rsa:2048 -keyout server.key -out server.crt -days 365 -nodes -subj "/C=CN/ST=Beijing/L=Beijing/O=Test/OU=Test/CN=localhost" 2>/dev/null
+fi
+
+# 启动HTTPS服务器
+echo "启动硅基流动模拟服务 (端口: 3700, HTTPS)"
+exec socat OPENSSL-LISTEN:3700,reuseaddr,fork,cert=server.crt,key=server.key,verify=0 SYSTEM:"
+    # 读取HTTP请求
+    read -r first_line
+    echo \"收到请求: \$first_line\" >&2
+    
+    # 解析请求行
+    method=\$(echo \"\$first_line\" | awk '{print \$1}')
+    path=\$(echo \"\$first_line\" | awk '{print \$2}')
+    
+    # 读取头部
+    declare -A headers
+    while IFS= read -r line; do
+        line=\$(echo \"\$line\" | tr -d '\\r')
+        if [[ -z \"\$line\" ]]; then
+            break
+        fi
+        key=\$(echo \"\$line\" | cut -d: -f1 | tr '[:upper:]' '[:lower:]')
+        value=\$(echo \"\$line\" | cut -d: -f2- | sed 's/^[[:space:]]*//')
+        headers[\$key]=\$value
+    done
+    
+    # 读取请求体（如果有）
+    content_length=\${headers['content-length']:-0}
+    if [[ \$content_length -gt 0 ]]; then
+        IFS= read -r -n \"\$content_length\" body
+    else
+        body=''
+    fi
+    
+    # 检查Authorization头
+    auth_header=\${headers['authorization']}
+    if [[ -n \"\$auth_header\" ]]; then
+        # 提取Bearer token
+        token=\$(echo \"\$auth_header\" | sed 's/Bearer //' | tr -d '[:space:]')
+        if [[ \${#token} -lt 5 ]]; then
+            # Token长度小于5，返回403
+            echo 'HTTP/1.1 403 Forbidden'
+            echo 'Content-Type: application/json'
+            echo ''
+            echo '{\"code\":403,\"message\":\"API key too short\",\"data\":null}'
+            exit 0
+        fi
+    fi
+    
+    # 检查enable_thinking参数
+    if echo \"\$body\" | grep -q '\"enable_thinking\"\s*:\s*true'; then
+        # 如果有enable_thinking且为true，返回400
+        echo 'HTTP/1.1 400 Bad Request'
+        echo 'Content-Type: application/json'
+        echo ''
+        echo '{\"code\":400,\"message\":\"enable_thinking not allowed\",\"data\":null}'
+    else
+        # 否则返回503
+        echo 'HTTP/1.1 503 Service Unavailable'
+        echo 'Content-Type: application/json'
+        echo ''
+        echo '{\"code\":503,\"message\":\"System is too busy now. Please try again later.\",\"data\":null}'
+    fi
+"

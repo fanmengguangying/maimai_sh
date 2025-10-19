@@ -1,31 +1,12 @@
 #!/bin/bash
 
-log() {
-    time=$(date +"%Y-%m-%d %H:%M:%S")
-    message="[${time}]: $1 "
-    case "$1" in
-    *"失败"* | *"错误"* | *"sudo不存在"* | *"当前用户不是root用户"* | *"无法连接"*)
-        echo -e "${RED}${message}${NC}"
-        ;;
-    *"成功"*)
-        echo -e "${GREEN}${message}${NC}"
-        ;;
-    *"忽略"* | *"跳过"*)
-        echo -e "${YELLOW}${message}${NC}"
-        ;;
-    *)
-        echo -e "${BLUE}${message}${NC}"
-        ;;
-    esac
-}
-
 TODO() {
     # 获取调用位置的栈帧信息（调用文件、行号、函数名）
     local stackFrame=$(caller 0)
     # 提取行号字段（第二个字段）
     local lineNumber=$(awk '{print $1}' <<<"${stackFrame}")
-    echo -e "${RED}[TODO] “${1}”：未实现的功能在: ${YELLOW}行号 ${lineNumber}${NC}"
-    echo -e "${CYAN}ԅ(¯﹃¯ԅ)没写完呢喵(*/ω＼*)${NC}\n"
+    log.error "[TODO] \"${1}\"：未实现的功能在: 行号 ${lineNumber}"
+    log.info "ԅ(¯﹃¯ԅ)没写完呢喵(*/ω＼*)"
 }
 
 # network_test 函数说明
@@ -78,31 +59,31 @@ network_test() {
     fi
 
     if [ -n "${proxy_num}" ] && [ "${proxy_num}" -ge 1 ] && [ "${proxy_num}" -le ${#proxy_arr[@]} ]; then
-        log "手动指定代理: ${proxy_arr[${proxy_num} - 1]}"
+        log.info "手动指定代理: ${proxy_arr[${proxy_num} - 1]}"
         target_proxy="${proxy_arr[${proxy_num} - 1]}"
     else
         if [ "${proxy_num}" -ne 0 ]; then
-            log "proxy 未指定或超出范围, 正在检查${parm1}代理可用性..."
+            log.info "proxy 未指定或超出范围, 正在检查${parm1}代理可用性..."
             for proxy in "${proxy_arr[@]}"; do
                 status=$(curl -o /dev/null -s -w "%{http_code}" "${proxy}/${check_url}")
                 if [ "${parm1}" == "Github" ] && [ ${status} -eq 200 ]; then
                     found=1
                     target_proxy="${proxy}"
-                    log "将使用${parm1}代理: ${proxy}"
+                    log.info "将使用${parm1}代理: ${proxy}"
                     break
                 elif [ "${parm1}" == "Docker" ] && { [ ${status} -eq 200 ] || [ ${status} -eq 301 ]; }; then
                     found=1
                     target_proxy="${proxy}"
-                    log "将使用${parm1}代理: ${proxy}"
+                    log.info "将使用${parm1}代理: ${proxy}"
                     break
                 fi
             done
             if [ ${found} -eq 0 ]; then
-                log "无法连接到${parm1}, 请检查网络。"
+                log.error "无法连接到${parm1}, 请检查网络。"
                 exit 1
             fi
         else
-            log "代理已关闭, 将直接连接${parm1}..."
+            log.info "代理已关闭, 将直接连接${parm1}..."
         fi
     fi
 }
@@ -117,7 +98,7 @@ New-NoneBotPlugin() {
 
     # 创建目录
     mkdir -p "${ProjectDir}/src/plugins" || {
-        echo "错误：无法创建目录" >&2
+        log.error "错误：无法创建目录"
         return 1
     }
 
@@ -150,9 +131,56 @@ LOG_LEVEL=DEBUG
 EOF
 
     touch "${ProjectDir}/.env.prod"
-    echo "[SUCCESS] 插件 '${PluginName}' 已创建于: ${ProjectDir}"
-    echo "[NOTE] 安装与src目录，使用fastapi+websockets"
+    log.info "[SUCCESS] 插件 '${PluginName}' 已创建于: ${ProjectDir}"
+    log.info "[NOTE] 安装与src目录，使用fastapi+websockets"
 }
+
+# 返回 0 表示可以继续；返回 1 表示必须 root 却拿不到，直接退出
+check_root() {
+  # 0. 已经 root？直接过
+  (( EUID == 0 )) && return 0
+
+  # 1. 连 sudo 命令都没有 → 非 Linux 或极度裁剪环境（Termux、MT、recovery 等）
+  if ! command -v sudo >/dev/null 2>&1; then
+    # 这些环境本来就不需要 root，或者根本装不了 sudo
+    case ${envType:-unknown} in
+      termux|mt) return 0 ;;
+      *) log.error "ERROR: sudo not found and not running as root."; exit 1 ;;
+    esac
+  fi
+
+  # 2. sudo 存在，但能不能免密拿到 root？
+  local sudo_test
+  sudo_test=$(sudo -n true 2>&1)
+  if (( $? == 0 )); then
+    # 2-a. 可以免密 root → 若当前脚本还没被 sudo 重跑，就自动重跑一次
+    if [[ ${IS_SOURCE:-} != "true" ]] && [[ ${envType:-unknown} == "unix" ]]; then
+      exec sudo -E bash "$0" "$@"   # -E 保留当前环境变量
+    fi
+    return 0
+  fi
+
+  # 3. sudo 存在但拿不到 root
+  case ${envType:-unknown} in
+    unix)
+      log.error "ERROR: sudo available but root privilege denied (check /etc/sudoers)."
+      exit 1
+      ;;
+    termux|mt|unknown)
+      log.warn "WARN: no root available in ${envType}. Continue without privilege."
+      return 0
+      ;;
+  esac
+}
+
+
+
+
+
+
+
+
+
 
 # napcat的启动脚本生成。可恶啊！居然移除了控制脚本！
 __NAPCAT__() {
@@ -447,46 +475,7 @@ esac
 exit 0
 NAPCAT
     chmod +x "/usr/local/bin/napcat"
-    log "${GREEN}napcat控制脚本不存在，已生成。${NC}"
-}
-###
-
-# 返回 0 表示可以继续；返回 1 表示必须 root 却拿不到，直接退出
-check_root() {
-  # 0. 已经 root？直接过
-  (( EUID == 0 )) && return 0
-
-  # 1. 连 sudo 命令都没有 → 非 Linux 或极度裁剪环境（Termux、MT、recovery 等）
-  if ! command -v sudo >/dev/null 2>&1; then
-    # 这些环境本来就不需要 root，或者根本装不了 sudo
-    case ${envType:-unknown} in
-      termux|mt) return 0 ;;
-      *) log "ERROR: sudo not found and not running as root."; exit 1 ;;
-    esac
-  fi
-
-  # 2. sudo 存在，但能不能免密拿到 root？
-  local sudo_test
-  sudo_test=$(sudo -n true 2>&1)
-  if (( $? == 0 )); then
-    # 2-a. 可以免密 root → 若当前脚本还没被 sudo 重跑，就自动重跑一次
-    if [[ ${IS_SOURCE:-} != "true" ]] && [[ ${envType:-unknown} == "unix" ]]; then
-      exec sudo -E bash "$0" "$@"   # -E 保留当前环境变量
-    fi
-    return 0
-  fi
-
-  # 3. sudo 存在但拿不到 root
-  case ${envType:-unknown} in
-    unix)
-      log "ERROR: sudo available but root privilege denied (check /etc/sudoers)."
-      exit 1
-      ;;
-    termux|mt|unknown)
-      log "WARN: no root available in ${envType}. Continue without privilege."
-      return 0
-      ;;
-  esac
+    log.success "napcat控制脚本不存在，已生成"
 }
 
 
