@@ -1,0 +1,176 @@
+#!/bin/bash
+# 用法：./siliconflowAPIKeys  [key-file]  默认同级目录下 siliconflow.keys
+#       ./siliconflowAPIKeys  stop        停服务
+#       ./siliconflowAPIKeys  status      看服务在不在
+
+set -euo pipefail
+
+port=3699
+
+script_dir=$(dirname "$(readlink -f "$0")")
+turn2siliconflow_path="$script_dir/turn2siliconflow"
+key_file="${1:-$script_dir/siliconflow.keys}"
+pid_file="/dev/shm/siliconflow_${port}/ncat.pid"
+lock_file="/dev/shm/siliconflow_${port}/LOCK"
+USING_KEYS="/dev/shm/siliconflow_${port}/USING_KEYS"
+shared_mem_dir="/dev/shm/siliconflow_${port}"
+connections_path="${shared_mem_dir}/connections"
+
+# --------- 生成脚本 ---------
+gen_script(){
+    true >$turn2siliconflow_path<<'turn2siliconflow'
+...
+turn2siliconflow
+    chmod +x "$turn2siliconflow_path"
+}
+
+# --------- 彩色日志 ---------
+log_info(){ echo -e "\033[36m[$(date '+%F %T')]\033[0m $*"; }
+log_err(){ echo -e "\033[31m[$(date '+%F %T')]\033[0m $*" >&2; }
+log_succ(){ echo -e "\033[32m[$(date '+%F %T')]\033[0m $*"; }
+
+# --------- 依赖检查 ---------
+install_deps(){
+    for cmd in jq ncat; do
+        if ! command -v "$cmd" &>/dev/null; then
+            log_info "安装缺失依赖 $cmd ..."
+            apt-get update -qq && apt-get install -y "$cmd" || {
+                log_err "$cmd 安装失败，请手动解决"
+                exit 1
+            }
+        fi
+    done
+}
+
+# --------- key 文件检查 ---------
+check_keys(){
+    [[ -s $key_file ]] || {
+        log_err "key 文件不存在或为空：$key_file"
+        log_err "请提供一个有效的 key 文件"
+        log_err "每行一个 key，允许注释和空行"
+        log_err "示例：$0 $key_file"
+        exit 1
+    }
+    # 去空行/注释，原子写
+    grep -vE '^(#|$)' "$key_file" > "$shared_mem_dir/ALLKEYS.tmp"
+    mv "$shared_mem_dir/ALLKEYS.tmp" "$shared_mem_dir/ALLKEYS"
+    key_count=$(wc -l < "$shared_mem_dir/ALLKEYS")
+    [[ $key_count -eq 0 ]] && {
+        log_err "key 文件里没有有效 key"
+        exit 1
+    }
+    echo "$key_count" > "$shared_mem_dir/key_count"
+}
+
+# --------- 可执行检查 ---------
+check_target(){
+    [[ -f $turn2siliconflow_path ]] || {
+        log_info "生成 Ask2Siliconflow 脚本 ..."
+        gen_script
+    }
+    [[ -x $turn2siliconflow_path ]] || {
+        log_info "给 Ask2Siliconflow 加执行权限 ..."
+        chmod +x "$turn2siliconflow_path"
+    }
+}
+
+# --------- 端口检查 ---------
+check_port(){
+    if ss -tuln | awk '{print $5}' | grep -qE ":${port}\>"; then
+        log_err "端口 $port 已被占用"
+        exit 1
+    fi
+}
+
+# --------- 清理旧垃圾 ---------
+cleanup_old(){
+    [[ -f $lock_file ]] && log_info "清理旧锁文件" && rm -f "$lock_file"
+    [[ -d "$shared_mem_dir/indexs" ]] && rm -rf "$shared_mem_dir/indexs"
+    mkdir -p "$shared_mem_dir"
+    # 空日志文件
+    > "$shared_mem_dir/log"
+    # 空无效 key 表
+    >> "./InvalidKeys"
+}
+
+# --------- 后台监控日志 ---------
+tail_log(){
+    log_info "----------- 实时日志 -----------"
+    tail -n 0 -f "$shared_mem_dir/log" &
+    tail_pid=$!
+    # 脚本退出时杀掉 tail
+    trap "kill $tail_pid 2>/dev/null" EXIT
+}
+
+see_log(){ tail -n 0 -f "$shared_mem_dir/log"; }
+
+# --------- 启动服务 ---------
+start_service(){
+    install_deps
+    check_port
+    mkdir -p "$shared_mem_dir"
+    mkdir -p "$connections_path"
+    mkdir -p "$USING_KEYS"
+    cleanup_old
+    check_keys
+    check_target
+
+    log_info "启动 ncat，监听 0.0.0.0:$port ..."
+    log_info "使用 key 文件：$key_file （共 $(wc -l < "$shared_mem_dir/ALLKEYS") 个看起来有效的key）"
+    log_info "日志文件：$shared_mem_dir/log"
+    log_info "XXX_BASE_URL是这个：http://localhost:$port/v1/"
+    log_info "停止服务：$0 stop"
+    log_info "查看状态：$0 status"
+    log_info "查看日志：$0 log"
+    log_info "如果要更换 key 文件，请先停止服务，替换文件后再启动"
+    log_info "去咸鱼买key，很便宜，二十多就能相当1400余额，比买余额便宜多了！"
+    log_err "XXX_KEY也是要填的（随意填，只要是一个正常key就可以了），目前是没有鉴权的！！！请不要暴漏在公网！"
+    log_err "简单脚本，不需要部署，只针对硅基流动的key！直接运行即可！"
+    log_succ "如果需要修改端口，请修改脚本里的 port 变量！"
+    # 真正后台跑
+    ncat -l "$port" --keep-open --exec "$turn2siliconflow_path" &
+    echo $! > "$pid_file"
+    sleep 0.5
+    if kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+        log_succ "服务已启动！PID=$(cat "$pid_file")"
+    else
+        log_err "启动失败"
+        exit 1
+    fi
+    tail_log
+    wait
+}
+
+# --------- 停止服务 ---------
+stop_service(){
+    [[ -f $pid_file ]] || { log_err "服务未运行"; exit 0; }
+    pid=$(cat "$pid_file")
+    if kill -0 "$pid" 2>/dev/null; then
+        log_info "停止服务 PID=$pid"
+        kill "$pid"
+        rm -f "$pid_file"
+    else
+        log_err "进程 $pid 已不存在"
+        rm -f "$pid_file"
+    fi
+}
+
+# --------- 查看状态 ---------
+status_service(){
+    if [[ -f $pid_file ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+        log_succ "服务运行中，PID=$(cat "$pid_file")"
+    else
+        log_info "服务未运行"
+    fi
+}
+
+# --------- 主入口 ---------
+case "${1:-}" in
+    stop)       stop_service ;;
+    status)     status_service ;;
+    log)        see_log ;;
+    "")         start_service ;;
+    *)          # 把第一个参数当成 key 文件
+                key_file="$1"
+                start_service ;;
+esac

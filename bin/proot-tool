@@ -1,0 +1,996 @@
+#!/system/bin/sh
+
+# ==== Color libray ====
+# https://github.com/vaniacer/bash_color/blob/master/color
+#----------------------------------------------------------------------------+
+#Color picker, usage: printf $BLD$CUR$RED$BBLU'Hello World!'$DEF             |
+#-----------------------------+------------------------------------+---------+
+#         Text color          |         Background color           |         |
+#-------------+---------------+----------------+-------------------+         |
+# Base color  | Lighter shade | Base color     | Lighter shade     |         |
+#-------------+---------------+----------------+-------------------+         |
+BLK='\033[30m'
+blk='\033[90m'
+BBLK='\033[40m'
+bblk='\033[100m' #| Black   |
+RED='\033[31m'
+red='\033[91m'
+BRED='\033[41m'
+bred='\033[101m' #| Red     |
+GRN='\033[32m'
+grn='\033[92m'
+BGRN='\033[42m'
+bgrn='\033[102m' #| Green   |
+YLW='\033[33m'
+ylw='\033[93m'
+BYLW='\033[43m'
+bylw='\033[103m' #| Yellow  |
+BLU='\033[34m'
+blu='\033[94m'
+BBLU='\033[44m'
+bblu='\033[104m' #| Blue    |
+MGN='\033[35m'
+mgn='\033[95m'
+BMGN='\033[45m'
+bmgn='\033[105m' #| Magenta |
+CYN='\033[36m'
+cyn='\033[96m'
+BCYN='\033[46m'
+bcyn='\033[106m' #| Cyan    |
+WHT='\033[37m'
+wht='\033[97m'
+BWHT='\033[47m'
+bwht='\033[107m' #| White   |
+#-------------------------------{ Effects }------------------------+---------+
+DEF='\033[0m'   #Default color and effects                                   |
+BLD='\033[1m'   #Bold\brighter                                               |
+DIM='\033[2m'   #Dim\darker                                                  |
+CUR='\033[3m'   #Italic font                                                 |
+UND='\033[4m'   #Underline                                                   |
+INV='\033[7m'   #Inverted                                                    |
+COF='\033[?25l' #Cursor Off                                                  |
+CON='\033[?25h' #Cursor On                                                   |
+#----------------------------------------------------------------------------+
+
+# ==== Library to draw box ====
+gen_str() {
+    i=0
+    str=""
+    while [ "$1" -gt $i ]; do
+        str=${str}$2
+        i=$((i + 1))
+    done
+    echo "$str"
+}
+
+box_title() {
+    num=$(((BOX_LEN - 2 - 2 - ${#1}) / 2))
+    line=$(gen_str $num '─')
+    oddstr=""
+    [ $((${#1} % 2)) -eq 0 ] && oddstr="─"
+    printf "${BOX_MARGIN_LEFT}┌${line} ${1} ${line}${oddstr}┐\n"
+}
+
+box_content() {
+    CONTENT_REMAIN_LEN=$((BOX_LEN - CONTENT_MARGIN_LEFT_LEN - 2))
+    fill_up_str=$(gen_str $((CONTENT_REMAIN_LEN - $2)) ' ')
+    printf "${BOX_MARGIN_LEFT}│${CONTENT_MARGIN_LEFT}${1}${fill_up_str}│\n"
+}
+
+box_line() {
+    # printf "${BOX_MARGIN_LEFT}$(gen_str $(( BOX_LEN - CONTENT_MARGIN_LEFT_LEN - 2 ))) '─')│"
+    printf "${BOX_MARGIN_LEFT}│$(gen_str $((BOX_LEN - 2)) '─')│\n"
+}
+
+box_bottom() {
+    printf "${BOX_MARGIN_LEFT}└$(gen_str $((BOX_LEN - 2)) '─')┘\n"
+}
+
+BOX_LEN=45
+BOX_MARGIN_LEFT_LEN=0
+CONTENT_MARGIN_LEFT_LEN=2
+
+BOX_MARGIN_LEFT=$(gen_str $BOX_MARGIN_LEFT_LEN ' ')
+CONTENT_MARGIN_LEFT=$(gen_str $CONTENT_MARGIN_LEFT_LEN ' ')
+# ================
+
+show_help() {
+    general_help() {
+        printf "\
+${CYN}${BLD}Tool to install Linux under PRoot on Android${DEF}  ${cyn}# 在 Android 的 PRoot 环境下安装 Linux 的工具${DEF}
+
+${BLD}${wht}Usage:${DEF}  ${cyn}# 用法${DEF}
+  ${ylw}${PROGRAM_NAME} [command] [<args...>]${DEF}
+  ${ylw}${PROGRAM_NAME} [option]${DEF}
+ 
+  ${cyn}View command help information${DEF}  ${cyn}# 查看命令帮助信息${DEF}
+  ${ylw}${PROGRAM_NAME} help [command]${DEF}
+  
+${BLD}${wht}Commands:${DEF}  ${cyn}# 命令列表${DEF}
+  ${ylw}help${DEF} 		${cyn}# Show help message.		显示帮助信息${DEF}
+  ${ylw}backup${DEF} 	${cyn}# Backup Container.		备份容器${DEF}
+  ${ylw}cp|clone${DEF} 	${cyn}# Clone Container.		克隆容器${DEF}
+  ${ylw}fix-l2s${DEF}	${cyn}# Fix proot link2symlink.	修复 proot 符号链接问题${DEF}
+  ${ylw}gen-start${DEF}	${cyn}# Generate startup script only.	仅生成启动脚本${DEF}
+  ${ylw}install${DEF}	${cyn}# Install rootfs container.	安装 rootfs 容器${DEF}
+  ${ylw}update${DEF} 	${cyn}# Update this tool to latest.	更新本工具到最新版${DEF}
+  
+${BLD}${wht}Options:${DEF}  ${cyn}# 选项${DEF}
+  ${ylw}--help|-h${DEF}	${cyn}# Same as command \"help\".	等同于 \"help\" 命令${DEF} 
+"
+    }
+
+    backup_help() {
+        printf "\
+${CYN}${BLD}备份容器/Backup container.${DEF}
+
+${BLD}${wht}用法/Usage:${DEF}
+  ${ylw}${PROGRAM_NAME} backup [文件/file] [发行版/distro]${DEF}
+  
+${BLD}${wht}示例/Examples:${DEF}
+  ${ylw}${PROGRAM_NAME} backup backup.tar alpine${DEF}
+"
+    }
+
+    clone_help() {
+        printf "\
+${CYN}${BLD}Clone container.${DEF}  ${CYN}${BLD}[容器克隆]${DEF}
+
+${BLD}${wht}Usage:${DEF}  ${BLD}${wht}[用法]${DEF}
+  ${ylw}${PROGRAM_NAME} cp|clone [source_dir] [dest_dir]${DEF}
+  
+${BLD}${wht}Examples:${DEF}  ${BLD}${wht}[示例]${DEF}
+  ${ylw}${PROGRAM_NAME} clone alpine tmp${DEF}
+"
+    }
+
+    fix_l2s_help() {
+        printf "\
+${CYN}${BLD}Fix proot link2symlink${DEF}  | ${CYN}${BLD}修复proot的link2symlink问题${DEF}
+
+${BLD}${wht}Usage:${DEF}  | ${BLD}${wht}用法:${DEF}
+  ${ylw}${PROGRAM_NAME} fix-l2s [<empty>|<dir>]${DEF}
+  
+${BLD}${wht}Examples:${DEF}  | ${BLD}${wht}示例:${DEF}
+  ${cyn}# Try to fix all dirs in current working dir${DEF}  | ${cyn}# 尝试修复当前工作目录下的所有目录${DEF}
+  ${ylw}proot-tool gen-start${DEF}
+
+  ${cyn}# Try to fix specific distro dir${DEF}  | ${cyn}# 尝试修复指定的发行版目录${DEF}
+  ${ylw}${PROGRAM_NAME} fix-l2s alpine${DEF}
+"
+    }
+
+    gen_start_help() {
+        printf "\
+${CYN}${BLD}Generate startup script.${DEF}  ${CYN}${BLD}生成启动脚本${DEF}
+
+${BLD}${wht}Usage:${DEF}  ${BLD}${wht}用法:${DEF}
+  ${ylw}${PROGRAM_NAME} gen-start [<empty>|<file>|<dir>]${DEF}
+  
+${BLD}${wht}Examples:${DEF}  ${BLD}${wht}示例:${DEF}
+  ${cyn}# Generate ./start in cwd${DEF}  ${cyn}# 在当前目录生成./start文件${DEF}
+  ${ylw}proot-tool gen-start${DEF}
+  
+  ${cyn}# Generate start script under dir${DEF}  ${cyn}# 在指定目录下生成启动脚本${DEF}
+  ${ylw}proot-tool gen-start distro${DEF}
+  
+  ${cyn}# Generate under dir with custom file name${DEF}  ${cyn}# 在目录下使用自定义文件名生成${DEF}
+  ${ylw}proot-tool gen-start distro/mystart${DEF}
+"
+    }
+
+    install_help() {
+        printf "\
+${CYN}${BLD}安装容器${DEF}
+
+${BLD}${wht}使用方法：${DEF}
+  ${ylw}${PROGRAM_NAME} install [文件] [目录] [选项]${DEF}
+
+${BLD}${wht}选项：${DEF}
+  ${ylw}--lib-uid [字符串]${DEF}    ${cyn}# 设置lib uid，请阅读注意事项
+  ${ylw}--lib-uid=[字符串]${DEF}
+  
+${BLD}${wht}示例：${DEF}
+  ${ylw}${PROGRAM_NAME} install ./alpine-rootfs.tar.xz ./alpine${DEF}
+  ${ylw}${PROGRAM_NAME} install ./alpine-rootfs.tar.xz ./alpine --lib-uid=aabbccddeeffgghhiijjkk${DEF}
+
+${BLD}${wht}注意： ${cyn}适用于 Android 10 及更高版本（API >= 29）${DEF}
+${BLD}${cyn}1. 需要安装此APK来提供minitar和proot库${DEF}
+${cyn}https://github.com/green-green-avk/AnotherTermShellPlugin-Android10Essentials${DEF}
+
+${BLD}${cyn}2. 在 Android 9 及以上需要设置lib uid${DEF}\
+$({
+            if command -v getprop >/dev/null; then
+                printf "${blu} (当前Android版本: $(getprop ro.build.version.release))"
+            fi
+        })
+${cyn}因应用沙箱机制 https://source.android.google.cn/security/app-sandbox
+${cyn}在 Android 9 及以上（API >=28），uid会在每次重装应用时变化，例如：
+${blu}/data/app/green_green_avk.anothertermshellplugin_android10essentials-aabbccddeeffgghhiijjkk==/apk${DEF}
+
+${cyn}获取lib uid的方法：
+    ${cyn}1. 在AnotherTerm中运行：
+    ${ylw}echo \$(\"\$TERMSH\" plugin green_green_avk.anothertermshellplugin_android10essentials apk|cut -d- -f2|cut -d== -f1)${DEF}\
+$({
+            if is_anotherterm && validate_anotherterm_essentials_plugin; then
+                printf "\n"
+                printf "    ${blu}已检测到"
+                ("$TERMSH" plugin green_green_avk.anothertermshellplugin_android10essentials apk | cut -d- -f2 | cut -d== -f1 >/dev/null) && ({
+                    printf " ${blu}LIB_UID=${BLD}$("$TERMSH" plugin green_green_avk.anothertermshellplugin_android10essentials apk | cut -d- -f2 | cut -d== -f1)${DEF}\n"
+                })
+            fi
+        })
+    
+    ${cyn}2. 通过adb获取：
+    ${ylw}cmd package path green_green_avk.anothertermshellplugin_android10essentials|cut -d: -f2|cut -d- -f2|cut -d== -f1${DEF}
+    
+    ${cyn}3. 通过文件管理器或X-plorer、Solid Explorer等包管理器应用查看
+    
+${cyn}使用基础应用库的安装示例：
+    ${cyn}# 通过--lib-uid选项设置
+    ${ylw}sh ./proot-tool install ./distro-rootfs.tar.xz distro --lib-uid=aabbccddeeffgghhiijjkk${DEF}
+    
+    ${cyn}# 通过LIB_UID环境变量设置
+    ${ylw}export LIB_UID=aabbccddeeffgghhiijjkk
+    ${ylw}sh ./proot-tool install ./distro-rootfs.tar.xz distro${DEF}
+"
+    }
+
+    update_help() {
+        printf "\
+${CYN}${BLD}Update this tool.${DEF}  ${CYN}${BLD}更新此工具。 # 已失效${DEF}
+
+${BLD}${wht}Usage:${DEF}  ${BLD}${wht}用法:${DEF}
+  ${ylw}${PROGRAM_NAME} update${DEF}
+"
+    }
+
+    if [ $# -eq 1 ]; then
+        case "$1" in
+        backup) backup_help ;;
+        cp | clone) clone_help ;;
+        fix-l2s) fix_l2s_help ;;
+        gen-start) gen_start_help ;;
+        install) install_help ;;
+        update) update_help ;;
+        *) general_help ;;
+        esac
+    else
+        general_help
+    fi
+
+}
+
+is_anotherterm() {
+    [ -n "${APP_ID}" ] && (echo "$APP_ID" | grep -q "anotherterm")
+}
+
+get_anoterterm_appid() {
+    if is_anotherterm; then
+        echo "${APP_ID#green_green_avk.anotherterm.}"
+    fi
+}
+
+anotherterm_is_dist() {
+    [ "$(get_anoterterm_appid)" = "dist" ]
+}
+
+anotherterm_is_oldgood() {
+    [ "$(get_anoterterm_appid)" = "oldgood" ]
+}
+
+is_termux() {
+    [ -n "${TERMUX_VERSION}" ]
+}
+
+validate_tarball_file() {
+    if [ -f "$1" ]; then
+        case $(ls "$1") in
+        *tar.gz | *tgz | *tar.xz | *txz | *tar) ;;
+        *)
+            printf "${red}错误：未知的压缩包类型${DEF}\n"
+            exit 1
+            ;;
+        esac
+    else
+        printf "${red}错误：未找到源码压缩文件${DEF}\n"
+        exit 1
+    fi
+}
+
+# Validate if anothermterm essentail plugin available on anothermterm
+validate_anotherterm_essentials_plugin() {
+    "$TERMSH" plugin -h green_green_avk.anothertermshellplugin_android10essentials >/dev/null 2>&1
+}
+
+decompress_rootfs() {
+    TARBALL=$(realpath "$1")
+    BASE_DIR=$2
+    # 优先使用minitar（如果找到），
+    # 否则尝试使用GNU tar（较慢），
+    # 最后使用普通tar（可能存在问题）。
+
+    # minitar无需处理link2symlink，速度最快。
+    # 普通tar需处理link2symlink，速度较慢。
+
+    validate_tar_decompress_tool() {
+        [ -x "$TAR_DECOMPRESS_TOOL_PATH" ]
+    }
+
+    prepare_to_decompress() {
+        mkdir -p "$BASE_DIR"
+        [ ! -d "$BASE_DIR" ] && printf "${red}ERROR: FAILED TO CREATE DEST DIR${DEF}\n" && exit 1
+        mkdir -p "$BASE_DIR/rootfs"
+        printf "${cyn}正在解压rootfs，请耐心等待...${DEF}\n"
+    }
+
+    if is_anotherterm && validate_anotherterm_essentials_plugin; then
+        TAR_DECOMPRESS_TOOL_PATH=$("$TERMSH" plugin green_green_avk.anothertermshellplugin_android10essentials minitar)
+    elif [ -x "$LIBMINITAR_PATH" ]; then
+        TAR_DECOMPRESS_TOOL_PATH="$LIBMINITAR_PATH"
+    fi
+    if ! validate_tar_decompress_tool; then
+        TAR_DECOMPRESS_TOOL_PATH=$BIN_DIR/minitar
+    fi
+    if ! validate_tar_decompress_tool; then
+        TAR_DECOMPRESS_TOOL_PATH=$(command -v minitar)
+    fi
+    if ! validate_tar_decompress_tool; then
+        TAR_DECOMPRESS_TOOL_PATH=$HOME/.local/bin/minitar
+    fi
+    # printf  "${mgn}$TAR_DECOMPRESS_TOOL_PATH${DEF}\n"
+
+    # 如果找到minitar
+    if validate_tar_decompress_tool; then
+        prepare_to_decompress
+        (cd "$BASE_DIR/rootfs" && "$TAR_DECOMPRESS_TOOL_PATH" -xf "$TARBALL" || :)
+    # 否则使用tar（需通过proot的link2symlink修复硬链接问题）
+    else
+        printf "${mgn}WARNING: minitar not found, using tar is much slower.${DEF}\n"
+
+        # 如果PATH中的tar不是GNU tar，提示用户
+        if ! (tar --version 2>/dev/null | head -n 1 | grep -q 'tar (GNU tar)'); then
+            echo
+            printf "${BRED}Warning: tar binary that is available in PATH appears to be not a GNU tar. \
+            You may experience issues during installation, backup and restore operations.${RST}\n"
+            echo
+        fi
+
+        validate_proot() {
+            [ -x "$PROOT_BIN_PATH" ]
+        }
+
+        # == 查找proot二进制路径 ==
+        PROOT_BIN_PATH=""
+        ! validate_proot && ! is_anotherterm && validate_essentials_lib && PROOT_BIN_PATH="$LIBPROOT_PATH"
+        ! validate_proot && PROOT_BIN_PATH="$(command -v proot)"
+        ! validate_proot && PROOT_BIN_PATH="$BASE_DIR/proot"
+        ! validate_proot && PROOT_BIN_PATH="$HOME/.local/MaiM-with-u/bin/proot"
+        ! validate_proot && printf "${red}ERROR: PROOT_NOT_FOUND/找不到proot！${DEF}\n" && exit 1
+        # ========
+
+        prepare_to_decompress
+        PROOT_TMP_DIR=$BASE_DIR/tmp
+        mkdir -p "$PROOT_TMP_DIR"
+
+        (cd "$BASE_DIR/rootfs" && "$PROOT_BIN_PATH" --link2symlink tar -xf "$TARBALL" || :)
+    fi
+}
+
+setup_nameserver() {
+    box_title "Setup nameserver"
+    RESOLV_CONF=$BASE_DIR/rootfs/etc/resolv.conf
+
+    gen_resolv_conf() {
+        NAMESERVER="114.114.114.114"
+        NAMESERVER_FB="8.8.8.8"
+        echo "\
+nameserver $NAMESERVER
+nameserver ${NAMESERVER_FB}\
+" >"$RESOLV_CONF" &&
+            box_content "nameserver ${ylw}${NAMESERVER}${DEF}" $((11 + ${#NAMESERVER}))
+        box_content "nameserver ${ylw}${NAMESERVER_FB}${DEF}" $((11 + ${#NAMESERVER_FB}))
+    }
+
+    if [ -h "$RESOLV_CONF" ]; then
+        if [ ! -s "$RESOLV_CONF" ]; then
+            rm -f "$RESOLV_CONF"
+            gen_resolv_conf
+        else
+            printf "${ylw}resolve.conf is symlink and not empty${DEF}\n"
+        fi
+    elif [ ! -s "$RESOLV_CONF" ]; then
+        gen_resolv_conf
+    fi
+    box_bottom
+}
+
+exists_profile_dir() {
+    [ -d "$BASE_DIR/rootfs/etc/profile.d" ]
+}
+
+add_locale_to_profile() {
+    if exists_profile_dir; then
+        LOCALE_FILE=$BASE_DIR/rootfs/etc/profile.d/locale.sh
+        if [ ! -f "$LOCALE_FILE" ]; then
+            echo "\
+export CHARSET=UTF-8
+export LANG=C.UTF-8
+export LC_COLLATE=C\
+" >"$LOCALE_FILE" &&
+                box_content "created ${ylw}/etc/profile.d/locale.sh${DEF}" 32
+        else
+            box_content "${mgn}/etc/profile.d/locale.sh already exists${DEF}" 39
+        fi
+    fi
+}
+
+add_ps_to_profile() {
+    if exists_profile_dir; then
+        PS_FILE=$BASE_DIR/rootfs/etc/profile.d/ps.sh
+        if [ ! -f "$PS_FILE" ]; then
+            # command echo on old android dose not print correctly, use printf instead
+            printf "\
+PS1='\[\\\e[32m\]\\\u\[\\\e[33m\]@\[\\\e[32m\]\\\h\[\\\e[33m\]:\[\\\e[32m\]\\\w\[\\\e[33m\]\\\$\[\\\e[0m\] '
+PS2='\[\\\e[33m\]>\[\\\e[0m\] '\
+" >"$PS_FILE" &&
+                box_content "created ${ylw}/etc/profile.d/ps.sh${DEF}" 28
+        else
+            box_content "${mgn}/etc/profile.d/ps.sh already exists${DEF}" 35
+        fi
+    fi
+}
+
+add_cls_to_profile() {
+    if exists_profile_dir; then
+        CLS_FILE=$BASE_DIR/rootfs/etc/profile.d/cls.sh
+        if [ ! -f "$CLS_FILE" ]; then
+            echo "alias cls='printf \"\\\033c\" && clear'" >"$CLS_FILE" &&
+                box_content "created ${ylw}/etc/profile.d/cls.sh${DEF}" 29
+        else
+            box_content "${mgn}/etc/profile.d/cls.sh already exists${DEF}" 36
+        fi
+    fi
+}
+
+add_termsh_to_bin() {
+    echo "
+#!/bin/sh
+
+unset LD_PRELOAD
+unset LD_LIBRARY_PATH
+/bin/_termsh "\$@"
+" >"$BASE_DIR/rootfs/bin/termsh" && chmod +x "$BASE_DIR/rootfs/bin/termsh"
+}
+
+# Fake restricted /proc entries on Android.
+# https://github.com/termux/termux-app/issues/1917
+setup_fake_proc() {
+    box_title "Setup fake proc"
+    mkdir -p "$BASE_DIR/rootfs/proc"
+    chmod 700 "$BASE_DIR/rootfs/proc"
+    _="$PREFIX"
+    if [ -z "$PREFIX" ];then
+        PREFIX="${HOME}/.local/MaiM-with-u"
+    fi
+
+    for i in $(cd "$PREFIX/proot_proc" && echo *); do
+        if ! cat "/proc/$i" &>/dev/null; then
+            cp -rf "$PREFIX/proot_proc/$i" "$BASE_DIR/rootfs/proc/.$i" &&
+                box_content "created ${ylw}/proc/.$i${DEF}" $((15 + ${#i}))
+        fi
+    done
+    box_bottom
+    PREFIX="$_"
+}
+
+patch() {
+    BASE_DIR=$1
+    box_title "Distro info"
+    # there is no os-release on busybox rootfs
+    OS_RELEASE_FILE=$BASE_DIR/rootfs/etc/os-release
+    if [ -f "$OS_RELEASE_FILE" ]; then
+        OS_ID=$(cat "$OS_RELEASE_FILE" | grep '^ID=' | cut -d= -f2)
+        OS_VERSION_ID=$(cat "$OS_RELEASE_FILE" | grep '^VERSION_ID=' | cut -d= -f2)
+
+        OS_ID_STR='OS_ID: '
+        OS_VERSION_ID_STR='OS_VERSION_ID: '
+
+        # box_line
+        box_content "${OS_ID_STR}${ylw}$OS_ID${DEF}" $((${#OS_ID_STR} + ${#OS_ID}))
+        box_content "${OS_VERSION_ID_STR}${ylw}$OS_VERSION_ID${DEF}" $((${#OS_VERSION_ID_STR} + ${#OS_VERSION_ID}))
+    else
+        box_content "${mgn}/etc/os-release not found${DEF}" 25
+    fi
+    box_bottom
+
+    setup_nameserver
+
+    #setup_profile
+    box_title "Setup profile/设置配置文件"
+
+    add_locale_to_profile
+    add_ps_to_profile
+    add_cls_to_profile
+    box_bottom
+
+    # == Setup fake proc for some distros ==
+    setup_fake_proc
+    # ========
+
+    box_title "Extra/解压"
+    case $OS_ID in
+    ubuntu)
+        HUSH_LOGIN_FILE=$BASE_DIR/rootfs/root/.hushlogin
+        if [ ! -f "$HUSH_LOGIN_FILE" ]; then
+            touch "$HUSH_LOGIN_FILE" &&
+                box_content "created ${ylw}~/.hushlogin${DEF} for ubuntu" 31
+        else
+            box_content "${mgn}~/.hushlogin already exists${DEF}" 27
+        fi
+        ;;
+    *) ;;
+    esac
+    box_bottom
+
+    # add_termsh_to_bin
+}
+
+generate_start_script() {
+    if [ $# -gt 0 ]; then
+        if [ -d "$1" ]; then
+            # Remove extra slash
+            if [ "${1:$((${#1} - 1))}" = "/" ]; then
+                STARTER_SCRIPT="${1:0:$((${#1} - 1))}/start"
+            else
+                STARTER_SCRIPT="${1}/start"
+            fi
+        else
+            STARTER_SCRIPT="$1"
+        fi
+    else
+        STARTER_SCRIPT="./start"
+    fi
+
+    echo '#!/system/bin/sh
+
+is_anotherterm() { 
+	[ -n "${APP_ID}" ] && (echo "${APP_ID}"| grep -q "anotherterm")
+}
+
+is_termux() {
+	[ -n "${TERMUX_VERSION}" ]
+}
+
+validate_proot() {
+	[ -x "$PROOT_BIN_PATH" ]
+}
+
+validate_anotherterm_essentials_plugin(){
+	"$TERMSH" plugin -h green_green_avk.anothertermshellplugin_android10essentials >/dev/null 2>&1
+}' >"$STARTER_SCRIPT"
+
+    echo "# check if anotherterm_essentials_plugin libproot.so is available
+LIBPROOT_PATH=\"$LIBPROOT_PATH\"
+validate_essentials_libproot(){ [ -x \"\$LIBPROOT_PATH\" ]; }\
+" >>"$STARTER_SCRIPT"
+
+    echo '# BASE_DIR is parent dir where rootfs dir locate at
+BASE_DIR="$(realpath $(dirname $0))"
+
+# == Find proot binary path ==
+PROOT_BIN_PATH=""
+! validate_proot && is_anotherterm && validate_anotherterm_essentials_plugin && PROOT_BIN_PATH="$("$TERMSH" plugin green_green_avk.anothertermshellplugin_android10essentials proot)"
+! validate_proot && ! is_anotherterm && validate_essentials_libproot && PROOT_BIN_PATH="$LIBPROOT_PATH"
+! validate_proot && PROOT_BIN_PATH="$(command -v proot)"
+! validate_proot && PROOT_BIN_PATH="$BASE_DIR/proot"
+! validate_proot && PROOT_BIN_PATH="$HOME/.local/MaiM-with-u/bin/proot"
+! validate_proot && echo "ERROR: PROOT_NOT_FOUND" && exit 1
+# ========
+
+if is_anotherterm; then
+	[ ! -n USER_ID ] && USER_ID="$(id -u)"
+	export TERMSH_UID="$USER_ID" # "$(id -u)" does not work for old Androids.
+fi
+
+export PROOT_TMP_DIR="${BASE_DIR}/tmp"
+mkdir -p "$PROOT_TMP_DIR"
+
+# == Enhanced link2symlink log ==
+PROOT_L2S_DIR="${BASE_DIR}/rootfs/.proot.meta"
+mkdir -p "$PROOT_L2S_DIR"
+
+if [ -d "$PROOT_L2S_DIR" ]; then
+	export PROOT_L2S_DIR
+fi
+# ========
+
+# == Unset env ==
+unset TMPDIR
+unset LD_LIBRARY_PATH
+unset ENV
+
+# unset LD_PRELOAD in case termux-exec is installed
+is_termux && unset LD_PRELOAD
+# ========
+
+# ==== Proot ====
+# Termux sh does not recognize string +=, use =${var} instead
+
+# Define container home
+CONTAINER_HOME="/root"
+
+command="$PROOT_BIN_PATH"
+
+# To emulate other architecture
+# QEMU_BIN_PATH="$(command -v qemu-x86_64)"
+# if [ -x $QEMU_BIN_PATH ]; then
+# 	command=${command}" --qemu=$QEMU_BIN_PATH"
+# 	else
+# 	printf "ERROR: QEMU NOT FOUND"
+# fi
+
+# Some devices have old kernels and GNU libc refuses to work on them.
+# Fix this behavior by reporting a fake up-to-date kernel version.
+# command=${command}" --kernel-release=5.4.0-faked"
+
+# = Handles System V IPC syscalls (shmget, semget, msgget, etc.)
+command=${command}" --sysvipc"
+
+command=${command}" --link2symlink"
+command=${command}" --kill-on-exit"
+
+# = Modify bindings to protected ports to use a higher port number.
+command=${command}" -p"
+
+# = Fix lstat to prevent dpkg symlink size warnings
+command=${command}" -L"
+
+# = Hide files and directories starting with ".proot." .
+command=${command}" -H"
+
+command=${command}" -S $BASE_DIR/rootfs"
+command=${command}" --cwd=$CONTAINER_HOME"
+[ -d /vendor ] && command=${command}" --bind=/vendor"
+[ -f /linkerconfig/ld.config.txt ] && command=${command}" --bind=/linkerconfig/ld.config.txt"
+
+# == Bind fake proc ==
+if ls ${BASE_DIR}/rootfs/proc/.* > /dev/null 2>&1; then
+	for i in $(cd ${BASE_DIR}/rootfs/proc && echo .*); do
+		command=${command}" --bind=${BASE_DIR}/rootfs/proc/${i}:/proc/${i/.}"
+	done
+fi
+# ========
+
+# == Bind /tmp to /dev/shm. ==
+if [ ! -d "${BASE_DIR}/rootfs/tmp" ]; then
+	mkdir -p "${BASE_DIR}/rootfs/tmp"
+fi
+command=${command}" --bind=${BASE_DIR}/rootfs/tmp:/dev/shm"
+# ========
+
+# == Bind external storage ==
+# OS versions are different, some directories may be unavailable
+# and we need to try them all.
+if ls -1 /storage/emulated/0/ > /dev/null 2>&1; then
+	command=${command}" --bind=/storage/emulated/0:/sdcard --bind=/storage/emulated/0"
+elif ls -1 /storage/self/primary/ > /dev/null 2>&1; then
+	command=${command}" --bind=/storage/self/primary:/sdcard"
+elif ls -1 /sdcard/ > /dev/null 2>&1; then
+	command=${command}" --bind=/sdcard:/sdcard"
+else
+	# No access to shared storage.
+	:
+fi
+# ========
+
+# == Bind home dir ==
+# is_anotherterm && command=${command}" --bind=$DATA_DIR:/_root"
+# is_anotherterm && command=${command}" --bind=$DATA_DIR:$CONTAINER_HOME"
+# is_anotherterm && command=${command}" --bind=$DATA_DIR"
+# ========
+
+# == Command termsh for anotherterm ==
+[ -d /apex ] && command=${command}" --bind=/apex"
+command=${command}" --bind=/system"
+is_anotherterm && command=${command}" --bind=$LIB_DIR/libtermsh.so"
+is_anotherterm && command=${command}" --bind=$LIB_DIR/libtermsh.so:/bin/termsh"
+# ========
+
+# == Bind .hushlogin for ubuntu in case HOME dir changes ==
+HUSH_LOGIN_FILE="${BASE_DIR}/rootfs/root/.hushlogin"
+[ -f "$HUSH_LOGIN_FILE" ] && command=${command}" --bind=$HUSH_LOGIN_FILE:$CONTAINER_HOME/.hushlogin"
+# ========
+
+# == Define shell ==
+SHELL="/bin/bash"
+FB_SHELL="/bin/sh"
+if [ ! -x "${BASE_DIR}/rootfs/$SHELL" ]; then SHELL="$FB_SHELL"; fi
+# ========
+
+# == Setup defatul env and start shell ==
+command=${command}" /usr/bin/env"
+command=${command}" HOME="$CONTAINER_HOME""
+command=${command}" LANG=zh_CN.UTF-8"
+command=${command}" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+command=${command}" TMPDIR=/tmp"
+command=${command}" $SHELL -l"
+# ========
+
+exec $command "$@"
+# ================' >>"$STARTER_SCRIPT" &&
+        chmod +x "$STARTER_SCRIPT" &&
+        printf "${cyn}created startup script/启动脚本已创建 ${ylw}$STARTER_SCRIPT${DEF}\n"
+}
+
+remove_tarball() {
+    printf "${cyn}Moving image for cache.（已移动为缓存）${DEF}\n"
+    mv "$TARBALL" "$TARBALL.cache"
+    # rm "$TARBALL"
+}
+
+termux_fix_shebang() {
+    # Fix shebang #!/system/bin/sh -> #!/data/data/com.termux/files/usr/bin/sh
+    if is_termux; then
+        printf "${cyn}Fixing shebang of ${ylw}$STARTER_SCRIPT${DEF}\n"
+        # termux-fix-shebang "$STARTER_SCRIPT"
+        echo '#!/system/bin/sh
+PATH=$PATH:/system/bin exec /system/bin/getprop "$@"' >>"$BASE_DIR/rootfs/bin/getprop"
+        chmod +x "$BASE_DIR/rootfs/bin/getprop"
+    fi
+}
+
+final_work() {
+    termux_fix_shebang
+    remove_tarball
+
+    if [ "$TAR_DECOMPRESS_TOOL_PATH" = "$LIBMINITAR_PATH" ]; then
+        printf "${cyn}You can now run/现在你可以使用 ${ylw}sh ${STARTER_SCRIPT} ${cyn}to launch container./来启动容器${DEF}\n"
+    else
+        printf "${cyn}You can now run/现在你可以使用 ${ylw}${STARTER_SCRIPT} ${cyn}to launch container./来启动容器${DEF}\n"
+    fi
+}
+
+install_container() {
+    if [ $# -gt 1 ]; then
+        index=0
+        while [ $# -gt 0 ]; do
+            case $1 in
+            --lib-uid)
+                shift
+                LIB_UID=$1
+                shift
+                ;;
+            --lib-uid=*)
+                LIB_UID=$(echo $1 | cut -d= -f2)
+                shift
+                ;;
+            *)
+                arg_array[$index]=$1
+                index=$((index + 1))
+                shift
+                ;;
+            esac
+        done
+
+        if [ ${#arg_array[@]} -eq 2 ]; then
+            TARBALL=${arg_array[0]}
+            BASE_DIR=${arg_array[1]}
+        else
+            printf "${red}ERROR: Command install requres 2 positional args to install${DEF}\n"
+            exit 1
+        fi
+    else
+        printf "${red}ERROR: Command install requres 2 positional args to install${DEF}\n"
+        exit 1
+    fi
+
+    # echo LIB_UID=$LIB_UID
+    # echo TARBALL=$TARBALL
+    # echo BASE_DIR=$BASE_DIR
+
+    handle_lib_dir() {
+        if [ -n "$1" ]; then
+            UID_PART="${1}=="
+        else
+            UID_PART='1'
+        fi
+
+        lib_prefix='/data/app/green_green_avk.anothertermshellplugin_android10essentials-'
+
+        # Get essentials lib architecture dir
+        case $(getprop 'ro.product.cpu.abi') in
+        arm64-v8a) ARCH=arm64 ;;
+        armeabi | armeabi-v7a) ARCH=arm ;;
+        x86_64) ARCH=x86_64 ;;
+        x86 | i686) ARCH=x86 ;;
+        *)
+            printf "${red}ERROR: Unsupported architecture ${ARCH}${DEF}\n"
+            exit
+            ;;
+        esac
+
+        conbined_lib_dir=${lib_prefix}${UID_PART}"/lib/"${ARCH}
+
+        echo $conbined_lib_dir
+    }
+
+    # Setup ESSENTTIALS_LIB_DIR if installing on android api >= 29
+    if [ "$B_OPTION_LIB_UID" = "true" ]; then
+        LIB_DIR=$(handle_lib_dir "$OPTION_LIB_UID_VALUE")
+        validate_essentials_lib_error_exit "$LIB_DIR" && setup_essentials_lib "$LIB_DIR"
+    elif [ -n "$LIB_UID" ]; then
+        LIB_DIR=$(handle_lib_dir "$LIB_UID")
+        validate_essentials_lib_error_exit "$LIB_DIR" && setup_essentials_lib "$LIB_DIR"
+    fi
+
+    validate_tarball_file "$TARBALL"
+    decompress_rootfs "$TARBALL" "$BASE_DIR"
+    patch "$BASE_DIR"
+    generate_start_script "$BASE_DIR/start"
+    final_work
+}
+
+update_this_tool() {
+    cd "$BIN_DIR"
+    URL="https://raw.githubusercontent.com/zongou/proot-tool/main/bin/proot-tool"
+    PROOT_INSTALL_FILE="$(basename "$0")"
+    DOWNLOADED_TMP_FILE="${PROOT_INSTALL}.downloaded_tmp"
+    command -v "wget" >/dev/null 2>&1 && DOWNLOAD_TOOL=wget
+    command -v "curl" >/dev/null 2>&1 && DOWNLOAD_TOOL=curl
+    if [ -n "$DOWNLOAD_TOOL" ]; then
+        $DOWNLOAD_TOOL $URL -O "$DOWNLOADED_TMP_FILE"
+        if [ -f "$DOWNLOADED_TMP_FILE" ]; then
+            chmod +x "$DOWNLOADED_TMP_FILE" &&
+                mv -f "$DOWNLOADED_TMP_FILE" "$PROOT_INSTALL_FILE" &&
+                printf "${ylw}latest proot-install has updated to the latest.${DEF}\n" &&
+                exit 0
+        else
+            exit 1
+        fi
+    else
+        printf "${red}ERROR: NEITHER WGET NOR CURL IS FOUND${DEF}/n"
+        exit 1
+    fi
+}
+
+# Fix proot link2symlink
+# https://github.com/green-green-avk/AnotherTerm-scripts/blob/master/utils/fix-proot-rootfs.sh
+fix_l2s() {
+    set -e
+
+    OP='.l2s.'
+    P='.proot'
+
+    prepend() {
+        echo "$(dirname "$1")/$P$(basename "$1")"
+    }
+
+    relink() {
+        if [ -L "$1" ]; then
+            local LINK="$(readlink "$1")"
+            if (echo "$(basename "$LINK")" | grep -q "${OP}*"); then
+                SYMLINK_SELF_PATH="$(realpath "$(dirname "$1")")"/"$(basename "$1")"
+                SYMLINK_SELF_PATH_HEAD=${SYMLINK_SELF_PATH%%rootfs*}
+
+                SYMLINK_POINTED_PATH=$(readlink $1)
+                SYMLINK_POINTED_PATH_HEAD=${SYMLINK_POINTED_PATH%%rootfs*}
+
+                CORRECTED_PATH=${SYMLINK_POINTED_PATH/$SYMLINK_POINTED_PATH_HEAD/$SYMLINK_SELF_PATH_HEAD}
+                # echo "CORRECTED PATH: [${CORRECTED_PATH}]"
+                if [[ "$SYMLINK_POINTED_PATH" != "$CORRECTED_PATH" ]]; then
+                    C_TURQUOISE2="\033[38;5;45m"
+                    printf "Relinking:${C_TURQUOISE2} $1 ${DEF}-> ${ylw}${CORRECTED_PATH}${DEF}\n"
+                    ln -snf "$CORRECTED_PATH" "$1"
+                fi
+            fi
+        fi
+    }
+
+    # For anotherterm built proot
+    # https://github.com/green-green-avk/proot
+    # prefix .l2s. => .proot.l2s. for non-UserLAnd builds.
+    rename() {
+        if (echo "$(basename "$LINK")" | grep -q "${P}.${OP}*"); then
+            if [[ "$(basename "$1")" != "$P"."$OP"* ]]; then
+                printf "Renaming:${ylw} $1 ${DEF}-> "${ylw}$(prepend "$1")"${DEF}\n"
+                mv -f "$1" "$(prepend "$1")"
+            fi
+        fi
+    }
+
+    # find "${1:-.}" \( -name "$OP"\* -or -type l \) -print | while RESULT = read RESULT
+    # do
+    # [ -f "$RESULT" ] && rename "$RESULT" &
+    # [ -L "$RESULT" ] && relink "$RESULT" &
+    # done
+    for RESULT in $(find "${1:-.}" \( -name "$OP"\* -or -type l \) -print); do
+        [ -L "$RESULT" ] && relink "$RESULT" &
+        # [ -f "$RESULT" ] && rename "$RESULT" &
+    done
+    wait
+
+    echo Done
+}
+
+# Validate if essential lib is available except for anothermterm
+validate_essentials_lib() {
+    [ -x "$1/libproot.so" ] && [ -x "$1/libproot.so" ]
+}
+
+validate_essentials_lib_error_exit() {
+    if ! (validate_essentials_lib "$1"); then
+        printf "${red}ERROR: ESSENTIALS LIB DIR [$1] INVALID${DEF}\n"
+        exit 1
+    fi
+}
+
+setup_essentials_lib() {
+    [ -n "$1" ] && ESSENTTIALS_LIB_DIR="$1" || exit 1
+    LIBPROOT_PATH="$ESSENTTIALS_LIB_DIR/libproot.so"
+    LIBMINITAR_PATH="$ESSENTTIALS_LIB_DIR/libminitar.so"
+}
+
+grant_access_permission() {
+    find "$1" -type f -perm u= -o -perm u=x 2>&1 | grep -v 'Permission denied' | xargs -I {} chmod +rw {}
+}
+
+clone_container() {
+    printf "${cyn}Cloning $1 to $2${DEF}\n"
+    grant_access_permission "$1" &&
+        cp -r "$1" "$2" &&
+        fix_l2s "$2"
+}
+
+backup_contaniner() {
+    grant_access_permission "$2" &&
+        tar -cf "$1" "$2"
+}
+
+cmd_option() {
+    if [ $# -gt 0 ]; then
+        case "$1" in
+        -h | --help | help)
+            shift
+            show_help "$@"
+            exit 0
+            ;;
+        cp | clone)
+            shift
+            clone_container "$1" "$2" && exit 0 || exit 1
+            ;;
+        backup)
+            shift
+            backup_contaniner "$@" && exit 0 || exit 1
+            ;;
+        install)
+            shift
+            install_container "$@" && exit 0 || exit 1
+            ;;
+        gen-start)
+            shift
+            generate_start_script "$@" && exit 0 || exit 1
+            ;;
+        update)
+            shift
+            update_this_tool && exit 0 || exit 1
+            ;;
+        fix-l2s)
+            shift
+            fix_l2s "$1" && exit 0 || exit 1
+            ;;
+        *)
+            printf "${red}Run '${GREEN}${PROGRAM_NAME} help${CYAN}' to see the list of available commands.${DEF}\n"
+            exit 1
+            ;;
+        esac
+    else
+        printf "${BRED}ERROR: no command provided.${DEF}\n"
+        show_help
+        exit 1
+    fi
+}
+
+PROGRAM_NAME=$(basename "$0")
+BIN_DIR=$(realpath "$(dirname "$0")")
+cmd_option "$@"

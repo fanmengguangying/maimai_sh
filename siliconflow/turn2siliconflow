@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# 全局变量部分，例如颜色
+source ./lib/log.sh
+source ./lib/https.sh
+source ./lib/constants.sh
+source ./lib/auth.sh
+source ./lib/shared_memory.sh
+source ./lib/invalid_keys.sh
+source ./lib/index_manager.sh
+source ./lib/header_rebuild.sh
+source ./lib/proxy.sh
+source ./lib/dashboard.sh
+source ./lib/flock.sh
+source ./lib/colors.sh
+source ./lib/strip.sh 2>/dev/null && strip_main "$@"
+
+__DEBUG=tru
+__DEBUG_HOST=localhost
+__DEBUG_PORT=8080
+__DEBUG_TLS=fals
+turn2siliconflow_path=$(pwd)
+get_key(){
+    acquire_lock "$LOCKFILE" $$
+    while true; do
+        index=$(next_index)
+        if (( ${#INVALID[@]} >= KEY_COUNT )); then
+            log.error "main: 所有API密钥都已失效" >&2
+            printf "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nAll API keys invalid."
+            release_lock "$LOCKFILE" $$
+            exit 1
+        fi
+        [[ -z "${INVALID[$index]}" ]] && break
+        log.debug "main: 跳过无效密钥索引: $index" >&2
+    done
+    APIKEY="${KEYS[$index]}"
+    release_lock "$LOCKFILE" $$
+}
+
+# ---------- 主程序 ----------
+main() {
+    trap dashboard_log EXIT
+    log.debug "main: 开始处理请求，请求次数: $REQUEST_TIMES" >&2
+    ((REQUEST_TIMES++))
+    using_keys=($(ls $USING_KEYS))
+    if [[ -z "${using_keys[TIMES_429]}" ]];then
+        get_key # APIKEY
+        echo "$APIKEY">"$USING_KEYS/$APIKEY"
+        log.debug "main: 没有使用过key" >&2
+    else
+        APIKEY="${using_keys[TIMES_429]}"
+        log.debug "main: key命中" >&2
+    fi
+    # USING_KEYS
+    
+    if (( REQUEST_TIMES == 1 )); then
+        log.debug "main: 首次请求，解析HTTP头" >&2
+        process_http_headers "REQUEST"
+        _auth
+        if [[ -n "${REQUEST[content-length]}" ]]; then
+            body="$(dd bs=1 count="${REQUEST[content-length]}" 2>/dev/null | jq -c . 2>/dev/null || cat)"
+            REQUEST['content-length']="$(printf '%s' "$body" | wc -c)"
+            log.debug "main: 解析请求体，长度: ${REQUEST[content-length]}" >&2
+        else
+            body=""
+            log.debug "main: 无请求体" >&2
+        fi
+    fi
+    while ! turn2siliconflow;do
+        log.info "main: 重试第$REQUEST_TIMES请求.." >&2
+        ((REQUEST_TIMES++))
+    done
+    log.debug "main: 请求处理完成" >&2
+}
+
+# 初始化
+read_shared_memory
+init_invalid_keys
+[[ -f "$INDEXFILE" ]] && read -r index <"$INDEXFILE" || index=0
+# set -x
+main

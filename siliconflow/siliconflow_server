@@ -1,0 +1,113 @@
+#!/bin/bash
+
+#set -e
+
+PIPE_FILE="/tmp/test_pipe_$$"
+OUTPUT_FILE="/tmp/test_output_$$"
+
+cleanup() {
+    rm -f "$PIPE_FILE" "$OUTPUT_FILE"
+    kill $(jobs -p) 2>/dev/null || true
+}
+trap cleanup EXIT
+
+echo "=== 管道错误情况测试 ==="
+
+# 测试1: 正常管道通信
+echo -e "\n1. 正常管道通信:"
+mkfifo "$PIPE_FILE"
+(
+    sleep 0.5
+    echo "正常写入数据" > "$PIPE_FILE" 
+    echo "正常写入结果: $?"
+) &
+cat "$PIPE_FILE"
+wait
+
+# 测试2: 无读取端的管道写入
+echo -e "\n2. 无读取端写入:"
+mkfifo "$PIPE_FILE"
+echo "尝试写入无读取端的管道..." >&2
+timeout 1 bash -c "echo '测试数据' > '$PIPE_FILE'" 2>&1 || echo "退出状态: $?"
+rm -f "$PIPE_FILE"
+
+# 测试3: 读取端中途关闭
+echo -e "\n3. 读取端中途关闭:"
+mkfifo "$PIPE_FILE"
+(
+    # 读取一些数据然后退出
+    head -c 10 > /dev/null
+    exit 0
+) < "$PIPE_FILE" &
+READER_PID=$!
+sleep 0.2
+echo "开始写入大量数据..." >&2
+dd if=/dev/zero bs=1K count=100 2>/dev/null > "$PIPE_FILE" || echo "dd 退出状态: $?"
+kill $READER_PID 2>/dev/null || true
+rm -f "$PIPE_FILE"
+
+# 测试4: 管道文件不存在
+echo -e "\n4. 管道文件不存在:"
+rm -f "$PIPE_FILE"
+echo "写入不存在的管道文件..." >&2
+echo "数据" > "$PIPE_FILE" 2>&1 || echo "退出状态: $?"
+
+# 测试5: 普通文件冒充管道
+echo -e "\n5. 普通文件(非管道):"
+echo "创建普通文件..." > "$PIPE_FILE"
+echo "尝试写入普通文件作为管道..." >&2
+echo "数据" > "$PIPE_FILE" 2>&1 && echo "写入成功(但这是普通文件)"
+rm -f "$PIPE_FILE"
+
+# 测试6: 多进程竞争写入
+echo -e "\n6. 多进程竞争写入:"
+mkfifo "$PIPE_FILE"
+(
+    # 读取端
+    cat > "$OUTPUT_FILE" &
+    sleep 2
+    kill %1 2>/dev/null
+) < "$PIPE_FILE" &
+sleep 0.2
+
+# 多个写入进程
+for i in 1 2 3; do
+    (
+        echo "进程$i写入数据" > "$PIPE_FILE" 2>/dev/null
+        echo "进程$i退出状态: $?"
+    ) &
+done
+wait
+rm -f "$PIPE_FILE" "$OUTPUT_FILE"
+
+# 测试7: 使用 >> 追加到管道
+echo -e "\n7. 使用 >> 追加到管道:"
+mkfifo "$PIPE_FILE"
+(
+    timeout 1 cat "$PIPE_FILE" || true
+) &
+sleep 0.2
+echo "第一次写入" > "$PIPE_FILE"
+echo "第二次追加写入" >> "$PIPE_FILE" 2>&1 && echo "追加成功" || echo "追加失败: $?"
+rm -f "$PIPE_FILE"
+
+# 测试8: 大容量数据测试
+
+# 测试9: 使用exec保持管道打开
+echo -e "\n9. 使用exec保持管道打开:"
+mkfifo "$PIPE_FILE"
+# 保持写入端打开
+exec 3>"$PIPE_FILE"
+(
+    echo "子进程读取数据..." >&2
+    cat "$PIPE_FILE"
+    echo "子进程读取完成" >&2
+) &
+sleep 0.5
+echo "通过exec写入数据" >&3
+echo "第二次写入" >&3
+exec 3>&-
+wait
+rm -f "$PIPE_FILE"
+
+echo -e "\n=== 测试完成 ==="

@@ -1,0 +1,1768 @@
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+#  Get-MaiMaiRepository —— 一键拉取 MaiBot 主仓库或适配器
+# ------------------------------------------------------------
+
+#全局变量部分，例如颜色
+# ── 基础 8 色（标准/高亮） ------------------------
+BLACK=$'\033[0;1;30;90m'   #  黑色
+RED=$'\033[0;1;31;91m'     #  红色
+GREEN=$'\033[0;1;32;92m'   #  绿色
+YELLOW=$'\033[0;1;33;93m'  # 同 ORANGE #  黄色
+BLUE=$'\033[0;1;34;94m'    #  蓝色
+MAGENTA=$'\033[0;1;35;95m' #  紫色
+CYAN=$'\033[0;1;36;96m'    #  青色
+WHITE=$'\033[0;1;37;97m'   #  白色
+
+# ── 16 色扩展（高亮 8 色单独列出，方便记忆） -----
+BRIGHT_BLACK=$'\033[0;1;90;90m' # 深灰
+BRIGHT_RED=$'\033[0;1;91;91m'
+BRIGHT_GREEN=$'\033[0;1;92;92m'
+BRIGHT_YELLOW=$'\033[0;1;93;93m'
+BRIGHT_BLUE=$'\033[0;1;94;94m'
+BRIGHT_MAGENTA=$'\033[0;1;95;95m'
+BRIGHT_CYAN=$'\033[0;1;96;96m'
+BRIGHT_WHITE=$'\033[0;1;97;97m'
+
+# ── 特殊效果 --------------------------------------
+REVERSE=$'\033[7m'   # 反显
+BOLD=$'\033[1m'      # 加粗
+DIM=$'\033[2m'       # 暗淡
+UNDERLINE=$'\033[4m' # 下划线
+BLINK=$'\033[5m'     # 闪烁（部分终端不支持）
+NC=$'\033[0m'        # 复位所有属性
+
+#############################################
+## 1. 常量表（全局）
+#############################################
+declare -A DIR_NAMES=(
+    [MaiBot]=MaiBot
+    [Adapter]=MaiBot-Napcat-Adapter
+    [MaiBot-Napcat-Adapter]=MaiBot-Napcat-Adapter
+)
+
+# Git 地址
+declare -A GIT_URLS_MB=(
+    [main]=https://github.com/MaiM-with-u/MaiBot.git
+    [dev]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.5.8-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.5.11-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.5.13-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.5.15hotfix-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.5.15-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.6.0-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.6.2-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.6.3-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.6.3-fix3-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.6.3-fix4-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.7.0-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.8.0-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.8.1-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+    [0.9.0-alpha]=https://github.com/MaiM-with-u/MaiBot.git
+)
+
+declare -A GIT_URLS_ADP=(
+    [main]=https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter.git
+    [dev]=https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter.git
+    [0.2.3]=https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter.git
+    [0.4.2]=https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter.git
+)
+
+# Zip 地址
+declare -A ZIP_URLS_MB=(
+    [dev]=https://github.com/MaiM-with-u/MaiBot/archive/refs/heads/dev.zip
+    [main]=https://github.com/MaiM-with-u/MaiBot/archive/refs/heads/main.zip
+    [0.5.8-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.5.8-alpha.zip
+    [0.5.11-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.5.11-alpha.zip
+    [0.5.13-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.5.13-alpha.zip
+    [0.5.15hotfix-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.5.15hotfix-alpha.zip
+    [0.5.15-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.5.15-alpha.zip
+    [0.6.0-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.6.0-alpha.zip
+    [0.6.2-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.6.2-alpha.zip
+    [0.6.3-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.6.3-alpha.zip
+    [0.6.3-fix3-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.6.3-fix3-alpha.zip
+    [0.6.3-fix4-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.6.3-fix4-alpha.zip
+    [0.7.0-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.7.0-alpha.zip
+    [0.8.0-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.8.0-alpha.zip
+    [0.8.1-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.8.1-alpha.zip
+    [0.9.0-alpha]=https://github.com/MaiM-with-u/MaiBot/archive/refs/tags/0.9.0-alpha.zip
+)
+
+declare -A ZIP_URLS_ADP=(
+    [main]=https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter/archive/refs/heads/main.zip
+    [dev]=https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter/archive/refs/heads/dev.zip
+    [0.2.3]=https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter/archive/refs/tags/0.2.3.zip
+    [0.4.2]=https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter/archive/refs/tags/0.4.2.zip
+)
+
+#############################################
+## 2. 工具函数
+#############################################
+
+# 根据目标名返回关联数组名
+GIT:get_url_map() {
+    local target=$1 way=$2
+    case "$target" in
+        MaiBot)
+            [[ $way == zip ]] && echo ZIP_URLS_MB || echo GIT_URLS_MB
+            ;;
+        Adapter|MaiBot-Napcat-Adapter)
+            [[ $way == zip ]] && echo ZIP_URLS_ADP || echo GIT_URLS_ADP
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# 校验本地目录是否有效
+GIT:validate_directory() {
+    local dir=$1 way=$2
+    case "$way" in
+        zip) [[ -d "$dir/src" && -d "$dir/template" && -f "$dir/requirements.txt" ]] ;;
+        git) git -C "$dir" rev-parse --git-dir &>/dev/null ;;
+        *)   false ;;
+    esac
+}
+
+# 下载核心
+GIT:download_repository() {
+    local way=$1 url=$2 dir=$3
+    case "$way" in
+        git)
+            git clone "$url" "$dir" >&2
+            ;;
+        zip)
+            local tmpdir tmpzip
+            tmpdir=$(mktemp -d) && trap "rm -rf '$tmpdir'" RETURN
+            tmpzip=$tmpdir/dl.zip
+            wget -O "$tmpzip" "$url" >&2
+            unzip -q "$tmpzip" -d "$tmpdir"
+            mkdir -p "$dir"
+            mv "$tmpdir"/*/* "$dir"
+            ;;
+        *)
+            log.error "未知下载方式: $way"
+            return 1
+            ;;
+    esac
+}
+
+# 后处理：切分支 + 适配器黑名单
+GIT:post_process() {
+    local way=$1 target=$2 tag=$3 dir=$4
+    if [[ $way == git ]]; then
+        git -C "$dir" -c advice.detachedHead=false switch "$tag" &>/dev/null ||
+        git -C "$dir" -c advice.detachedHead=false checkout "$tag" &>/dev/null
+    fi
+    if [[ $target == Adapter || $target == MaiBot-Napcat-Adapter ]]; then
+        sed -i 's/private_list_type = "whitelist"/private_list_type = "blacklist"/' \
+            "$dir/template/template_config.toml"
+        sed -i 's/group_list_type = "whitelist"/group_list_type = "blacklist"/' \
+            "$dir/template/template_config.toml"
+        cp "$dir/template/template_config.toml" "$dir/config.toml"
+    fi
+}
+
+#############################################
+## 3. 主入口
+#############################################
+Get-MaiMaiRepository() {
+    local target=${1:-} tag=${2:-} way=${3:-git} proxy=${4:-} custom_dir=${5:-}
+    [[ -z $target || -z $tag ]] && { log.error "目标/标签不能为空"; return 1; }
+
+    # 自动选择 way
+    if [[ -z $way ]]; then
+        command -v git &>/dev/null && way=git || way=zip
+    fi
+
+    # 取地址表
+    local -n url_map=$(GIT:get_url_map "$target" "$way")
+    [[ -z ${url_map[$tag]:-} ]] && { log.error "无效标签: $tag"; return 1; }
+
+    local url=${url_map[$tag]}
+    [[ -n $proxy ]] && url="${proxy%/}/${url#*://}"
+
+    # 生成目录
+    local work=${WORKPATH:-./tmp}
+    local dir=${custom_dir:-$work/MaiM-with-u/${DIR_NAMES[$target]}}
+    dir=$(realpath -m "$dir")   # 绝对路径
+    [[ $dir == "/" ]] && { log.error "禁止操作根目录"; return 1; }
+    [[ $dir != *"/MaiM-with-u/"* ]] && { log.error "目录必须包含 /MaiM-with-u/"; return 1; }
+
+    # 已存在且有效 -> 直接返回
+    if GIT:validate_directory "$dir" "$way"; then
+        log.info "已存在有效目录，跳过: $dir"
+        printf '%s\n' "$dir"
+        return 0
+    fi
+
+    # 重试 3 次
+    local retry=0
+    while (( retry < 3 )); do
+        rm -rf "$dir"
+        mkdir -p "$dir"
+        if GIT:download_repository "$way" "$url" "$dir"; then
+            GIT:post_process "$way" "$target" "$tag" "$dir"
+            printf '%s\n' "$dir"
+            return 0
+        fi
+        ((retry++))
+        log.warn "下载失败，第 $retry 次重试..."
+        sleep 2
+    done
+
+    log.error "3 次重试均失败，放弃"
+    return 1
+}
+# ------ 1. 日志等级定义 ------
+# 数值越小越重要；可通过 LOG_LEVEL 动态过滤
+declare -A LOG_LEVELS=(
+    [FATAL]=0
+    [ERROR]=1
+    [WARN]=2
+    [INFO]=3
+    [SUCCESS]=3
+    [DEBUG]=4
+    [TRACE]=5
+)
+
+# 默认输出等级：INFO（可外部 export LOG_LEVEL=DEBUG 覆盖）
+LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+# ------ 2. 核心日志函数 ------
+log() {
+    local __status=$?
+    local LOG_TYPE="${1:-INFO}"
+    local LOG_MSG="${2:-}"
+    
+    # 转换为大写，实现大小写不敏感
+    LOG_TYPE="${LOG_TYPE^^}"
+    
+    # 非法等级自动转成 INFO
+    if [[ -z "${LOG_LEVELS[$LOG_TYPE]}" ]]; then
+        LOG_MSG="$LOG_TYPE $LOG_MSG"
+        LOG_TYPE="INFO"
+    fi
+
+    # 颜色定义 - 使用 ANSI 转义序列
+    # \033[ 转义序列开始
+    # 31m 红色，32m 绿色，33m 黄色，34m 蓝色，35m 紫色，36m 青色，37m 白色
+    # local RED=$'\033[31m'
+    # local GREEN=$'\033[32m'
+    # local YELLOW=$'\033[33m'
+    # local BLUE=$'\033[34m'
+    # local PURPLE=$'\033[35m'
+    # local CYAN=$'\033[36m'
+    # local WHITE=$'\033[37m'
+    # local NC=$'\033[0m' # No Color
+
+    # 颜色映射
+    case "$LOG_TYPE" in
+        FATAL)  LOG_COLOR=$'\033[31m' ;;
+        ERROR)  LOG_COLOR=$'\033[31m' ;;
+        WARN)   LOG_COLOR=$'\033[33m' ;;
+        INFO)   LOG_COLOR=$'\033[37m' ;;
+        SUCCESS)LOG_COLOR=$'\033[32m' ;;
+        DEBUG)  LOG_COLOR=$'\033[35m' ;;
+        TRACE)  LOG_COLOR=$'\033[36m' ;;
+        *)      LOG_COLOR=$'\033[37m' ;;
+    esac
+
+
+    # 等级过滤：当前类型等级 ≤ 设定等级时才输出
+    # 使用内置 printf 和日期格式，避免外部命令调用
+    if (( ${LOG_LEVELS[$LOG_TYPE]} <= ${LOG_LEVELS[${LOG_LEVEL^^}]:-3} )); then
+        printf '%s\n' "$(date +"%F %T") ${LOG_COLOR}[${LOG_TYPE}]${NC} ${LOG_MSG}"
+    fi
+    
+    return $__status
+}
+
+# ------ 3. 快捷函数 ------
+log.fatal()  { log FATAL "$@";  }
+log.error()  { log ERROR "$@";  }
+log.warn()   { log WARN  "$@";  }
+log.info()   { log INFO  "$@";  }
+log.success(){ log SUCCESS "$@";}
+log.debug()  { log DEBUG "$@";  }
+log.trace()  { log TRACE "$@";  }
+
+
+####################################
+Install-Package() {
+    # 确保环境信息已获取
+    # Get-Environment
+    
+    local packages=("$@")
+    local package_count=${#packages[@]}
+    
+    if [[ ${package_count} -eq 0 ]]; then
+        log.warn "未指定要安装的软件包"
+        return 0
+    fi
+    
+    log.info "准备安装 ${package_count} 个软件包: ${packages[*]}"
+    log.info "检测到环境: ${envType}, 包管理器: ${pkg_manager:-无}"
+    
+    # 根据环境类型和包管理器选择安装方式
+    case "${envType}" in
+        termux)
+            Install-Package-Termux "${packages[@]}"
+            ;;
+        mt)
+            Install-Package-MT "${packages[@]}"
+            ;;
+        unix)
+            Install-Package-Unix "${packages[@]}"
+            ;;
+        *)
+            Install-Package-Fallback "${packages[@]}"
+            ;;
+    esac
+    
+    return $?
+}
+
+Install-Package-Termux() {
+    local packages=("$@")
+    
+    if command -v pkg >/dev/null 2>&1; then
+        log.info "使用 pkg 安装: ${packages[*]}"
+        pkg install -y "${packages[@]}"
+        return $?
+    elif command -v apt >/dev/null 2>&1; then
+        log.info "使用 apt 安装: ${packages[*]}"
+        apt update && apt install -y "${packages[@]}"
+        return $?
+    else
+        log.error "Termux 环境中未找到包管理器"
+        return 1
+    fi
+}
+
+Install-Package-MT() {
+    local packages=("$@")
+    
+    # MT Manager 环境可能有特殊的安装方式
+    # 首先尝试 Termux 的方式
+    if command -v pkg >/dev/null 2>&1; then
+        log.info "使用 pkg 安装: ${packages[*]}"
+        pkg install -y "${packages[@]}"
+        return $?
+    elif command -v apt >/dev/null 2>&1; then
+        log.info "使用 apt 安装: ${packages[*]}"
+        apt update && apt install -y "${packages[@]}"
+        return $?
+    else
+        log.warn "MT 环境中未找到包管理器，尝试使用 curl/wget 下载"
+        Install-Package-Direct "${packages[@]}"
+        return $?
+    fi
+}
+
+Install-Package-Unix() {
+    local packages=("$@")
+    
+    case "${pkg_manager}" in
+        apt|apt-get)
+            Install-With-APT "${packages[@]}"
+            ;;
+        dnf)
+            Install-With-DNF "${packages[@]}"
+            ;;
+        yum)
+            Install-With-YUM "${packages[@]}"
+            ;;
+        pacman)
+            Install-With-Pacman "${packages[@]}"
+            ;;
+        zypper)
+            Install-With-Zypper "${packages[@]}"
+            ;;
+        apk)
+            Install-With-APK "${packages[@]}"
+            ;;
+        emerge)
+            Install-With-Emerge "${packages[@]}"
+            ;;
+        nix)
+            Install-With-Nix "${packages[@]}"
+            ;;
+        brew)
+            Install-With-Brew "${packages[@]}"
+            ;;
+        *)
+            log.warn "未知的包管理器: ${pkg_manager}，尝试通用方法"
+            Install-Package-Direct "${packages[@]}"
+            return $?
+            ;;
+    esac
+    
+    return $?
+}
+
+# APT (Debian/Ubuntu)
+Install-With-APT() {
+    local packages=("$@")
+    local apt_cmd="apt-get"
+    
+    # 检测是否有 apt 命令（更现代）
+    command -v apt >/dev/null 2>&1 && apt_cmd="apt"
+    
+    log.info "使用 ${apt_cmd} 安装: ${packages[*]}"
+    
+    # 是否需要 sudo
+    if [[ $EUID -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+        sudo ${apt_cmd} update
+        sudo ${apt_cmd} install -y "${packages[@]}"
+    elif [[ $EUID -eq 0 ]]; then
+        ${apt_cmd} update
+        ${apt_cmd} install -y "${packages[@]}"
+    else
+        log.warn "需要 root 权限但未找到 sudo，尝试非特权安装"
+        ${apt_cmd} update
+        ${apt_cmd} install -y "${packages[@]}" 2>/dev/null || {
+            log.error "安装失败，需要 root 权限"
+            return 1
+        }
+    fi
+}
+
+# DNF (Fedora/RHEL 8+)
+Install-With-DNF() {
+    local packages=("$@")
+    
+    log.info "使用 dnf 安装: ${packages[*]}"
+    
+    if [[ $EUID -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+        sudo dnf install -y "${packages[@]}"
+    elif [[ $EUID -eq 0 ]]; then
+        dnf install -y "${packages[@]}"
+    else
+        dnf install -y "${packages[@]}" 2>/dev/null || {
+            log.error "安装失败，需要 root 权限"
+            return 1
+        }
+    fi
+}
+
+# YUM (RHEL/CentOS 7及以下)
+Install-With-YUM() {
+    local packages=("$@")
+    
+    log.info "使用 yum 安装: ${packages[*]}"
+    
+    if [[ $EUID -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+        sudo yum install -y "${packages[@]}"
+    elif [[ $EUID -eq 0 ]]; then
+        yum install -y "${packages[@]}"
+    else
+        yum install -y "${packages[@]}" 2>/dev/null || {
+            log.error "安装失败，需要 root 权限"
+            return 1
+        }
+    fi
+}
+
+# Pacman (Arch/Manjaro)
+Install-With-Pacman() {
+    local packages=("$@")
+    
+    log.info "使用 pacman 安装: ${packages[*]}"
+    
+    # 更新包数据库
+    if [[ $EUID -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+        sudo pacman -Sy --noconfirm
+        sudo pacman -S --noconfirm --needed "${packages[@]}"
+    elif [[ $EUID -eq 0 ]]; then
+        pacman -Sy --noconfirm
+        pacman -S --noconfirm --needed "${packages[@]}"
+    else
+        pacman -S --noconfirm --needed "${packages[@]}" 2>/dev/null || {
+            log.error "安装失败，需要 root 权限"
+            return 1
+        }
+    fi
+}
+
+# Zypper (openSUSE)
+Install-With-Zypper() {
+    local packages=("$@")
+    
+    log.info "使用 zypper 安装: ${packages[*]}"
+    
+    if [[ $EUID -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+        sudo zypper refresh
+        sudo zypper install -y "${packages[@]}"
+    elif [[ $EUID -eq 0 ]]; then
+        zypper refresh
+        zypper install -y "${packages[@]}"
+    else
+        zypper install -y "${packages[@]}" 2>/dev/null || {
+            log.error "安装失败，需要 root 权限"
+            return 1
+        }
+    fi
+}
+
+# APK (Alpine)
+Install-With-APK() {
+    local packages=("$@")
+    
+    log.info "使用 apk 安装: ${packages[*]}"
+    
+    if [[ $EUID -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+        sudo apk update
+        sudo apk add "${packages[@]}"
+    elif [[ $EUID -eq 0 ]]; then
+        apk update
+        apk add "${packages[@]}"
+    else
+        apk add "${packages[@]}" 2>/dev/null || {
+            log.error "安装失败，需要 root 权限"
+            return 1
+        }
+    fi
+}
+
+# Emerge (Gentoo)
+Install-With-Emerge() {
+    local packages=("$@")
+    
+    log.info "使用 emerge 安装: ${packages[*]}"
+    
+    if [[ $EUID -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+        sudo emerge --sync
+        sudo emerge -av "${packages[@]}"
+    elif [[ $EUID -eq 0 ]]; then
+        emerge --sync
+        emerge -av "${packages[@]}"
+    else
+        emerge -av "${packages[@]}" 2>/dev/null || {
+            log.error "安装失败，需要 root 权限"
+            return 1
+        }
+    fi
+}
+
+# Nix (NixOS)
+Install-With-Nix() {
+    local packages=("$@")
+    
+    log.info "使用 nix 安装: ${packages[*]}"
+    
+    # Nix 通常不需要 root 权限
+    nix-env -iA "nixpkgs.${packages[@]}" 2>/dev/null || \
+    nix-env -i "${packages[@]}"
+}
+
+# Brew (macOS)
+Install-With-Brew() {
+    local packages=("$@")
+    
+    log.info "使用 brew 安装: ${packages[*]}"
+    
+    # 更新 Homebrew
+    brew update
+    
+    # 检查包是否存在
+    for pkg in "${packages[@]}"; do
+        if brew info "${pkg}" >/dev/null 2>&1; then
+            brew install "${pkg}"
+        else
+            log.warn "Homebrew 中未找到包: ${pkg}"
+            # 尝试使用 cask 安装（macOS 应用）
+            brew install --cask "${pkg}" 2>/dev/null || {
+                log.error "无法安装包: ${pkg}"
+            }
+        fi
+    done
+}
+
+# 回退方法：直接下载二进制文件
+Install-Package-Direct() {
+    local packages=("$@")
+    local download_dir="${HOME}/.local/bin"
+    
+    log.warn "使用直接下载方式安装（可能不稳定）"
+    
+    mkdir -p "${download_dir}"
+    
+    for pkg in "${packages[@]}"; do
+        case "${pkg}" in
+            wget|curl|git|python3|python|pip|node|npm)
+                Install-Binary-From-GitHub "${pkg}"
+                ;;
+            *)
+                log.error "无法自动安装: ${pkg}，请手动安装"
+                ;;
+        esac
+    done
+}
+
+Install-Binary-From-GitHub() {
+    local pkg="$1"
+    local download_url=""
+    local binary_name=""
+    
+    case "${pkg}" in
+        wget)
+            # 根据系统架构选择合适的版本
+            if [[ "$(uname -m)" == "aarch64" ]] || [[ "$(uname -m)" == "arm64" ]]; then
+                download_url="https://github.com/moparisthebest/static-curl/releases/download/v7.88.1/wget-arm64"
+            else
+                download_url="https://github.com/moparisthebest/static-curl/releases/download/v7.88.1/wget-amd64"
+            fi
+            binary_name="wget"
+            ;;
+        curl)
+            if [[ "$(uname -m)" == "aarch64" ]] || [[ "$(uname -m)" == "arm64" ]]; then
+                download_url="https://github.com/moparisthebest/static-curl/releases/download/v7.88.1/curl-arm64"
+            else
+                download_url="https://github.com/moparisthebest/static-curl/releases/download/v7.88.1/curl-amd64"
+            fi
+            binary_name="curl"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    
+    if [[ -n "${download_url}" ]]; then
+        log.info "从 GitHub 下载 ${binary_name}"
+        if command -v curl >/dev/null 2>&1; then
+            curl -L "${download_url}" -o "${download_dir}/${binary_name}"
+        elif command -v wget >/dev/null 2>&1; then
+            wget "${download_url}" -O "${download_dir}/${binary_name}"
+        else
+            log.error "需要 curl 或 wget 来下载文件"
+            return 1
+        fi
+        
+        chmod +x "${download_dir}/${binary_name}"
+        log.info "已安装 ${binary_name} 到 ${download_dir}"
+    fi
+}
+
+# 备用方案：使用通用包管理器
+Install-Package-Fallback() {
+    local packages=("$@")
+    
+    log.warn "使用备用安装方法"
+    
+    # 尝试常见的包管理器
+    for cmd in apt-get dnf yum pacman zypper apk emerge nix brew pkg; do
+        if command -v "${cmd}" >/dev/null 2>&1; then
+            log.info "发现备用包管理器: ${cmd}"
+            pkg_manager="${cmd}"
+            envType="unix"
+            Install-Package-Unix "${packages[@]}"
+            return $?
+        fi
+    done
+    
+    log.error "未找到任何可用的包管理器"
+    return 1
+}
+
+# 批量安装辅助函数
+Install-Packages() {
+    local package_list=("$@")
+    local failed_packages=()
+    
+    for pkg in "${package_list[@]}"; do
+        log.info "正在安装: ${pkg}"
+        if Install-Package "${pkg}"; then
+            log.success "成功安装: ${pkg}"
+        else
+            log.error "安装失败: ${pkg}"
+            failed_packages+=("${pkg}")
+        fi
+    done
+    
+    if [[ ${#failed_packages[@]} -gt 0 ]]; then
+        log.error "以下包安装失败: ${failed_packages[*]}"
+        return 1
+    else
+        log.success "所有包安装成功"
+        return 0
+    fi
+}
+
+# 验证包是否安装
+Package-Installed() {
+    local pkg="$1"
+    
+    case "${pkg_manager}" in
+        apt|apt-get)
+            dpkg -l | grep -q "^ii.*${pkg}" || command -v "${pkg}" >/dev/null 2>&1
+            ;;
+        dnf|yum)
+            rpm -qa | grep -q "${pkg}" || command -v "${pkg}" >/dev/null 2>&1
+            ;;
+        pacman)
+            pacman -Qi "${pkg}" >/dev/null 2>&1 || command -v "${pkg}" >/dev/null 2>&1
+            ;;
+        brew)
+            brew list | grep -q "^${pkg}$" || command -v "${pkg}" >/dev/null 2>&1
+            ;;
+        *)
+            command -v "${pkg}" >/dev/null 2>&1
+            ;;
+    esac
+    
+    return $?
+}
+
+Update-PackageSources() {
+    local backup_dir="/etc/apt/backups"
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    
+    case "${envType}" in
+    "termux")
+        update_termux_sources
+        ;;
+    "unix")
+        [[ "${answer}" =~ ^[Nn] ]] && return 0
+        update_unix_sources
+        ;;
+    esac
+}
+
+# Termux 换源
+update_termux_sources() {
+    log "开始为 Termux 换源！"
+    
+    local sources_file="${PREFIX}/etc/apt/sources.list"
+    local backup_file="${sources_file}.bak.${timestamp}"
+    
+    # 备份原文件
+    cp -f "${sources_file}" "${backup_file}" 2>/dev/null
+    log "已备份原文件到: ${backup_file}"
+    
+    # 替换源
+    if sed -i 's@^\(deb.*stable main\)$@#\1\ndeb https://mirrors.tuna.tsinghua.edu.cn/termux/termux-packages-24 stable main@' "${sources_file}"; then
+        apt update && \
+        apt -o Dpkg::Options::="--force-confnew" upgrade -y && \
+        DEBIAN_FRONTEND=noninteractive apt upgrade -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
+        
+        if [ $? -eq 0 ]; then
+            log "Termux 源更新成功！"
+        else
+            log "警告: 软件包更新过程中出现错误，但源已更换"
+        fi
+    else
+        log "错误: 替换 Termux 源失败"
+        restore_backup "${sources_file}" "${backup_file}"
+        return 1
+    fi
+}
+
+# Unix/Linux 系统换源
+update_unix_sources() {
+    log "正在为系统更换为阿里源..."
+    
+    # 定义源配置模板
+    declare -A source_templates=(
+        ["ubuntu_20.04"]="focal"
+        ["ubuntu_22.04"]="jammy"
+        ["ubuntu_24.04"]="noble"
+        ["debian_11"]="bullseye"
+        ["debian_12"]="bookworm"
+        ["debian_13"]="trixie"
+    )
+    
+    local distro_key="${os_id}_${os_version}"
+    local codename="${source_templates[$distro_key]}"
+    
+    if [ -z "$codename" ]; then
+        log "错误: 不支持的系统版本 ${distro_key}"
+        return 1
+    fi
+    
+    # 备份原文件
+    backup_apt_sources "${timestamp}"
+    
+    # 生成新的源文件
+    if ! generate_apt_sources "$os_id" "$codename" "$os_version"; then
+        log "错误: 生成源文件失败"
+        restore_apt_backup "${timestamp}"
+        return 1
+    fi
+    
+    # 处理 Ubuntu 24.04 的特殊情况（需要 GPG 密钥）
+    if [ "$os_id" = "ubuntu" ] && [ "$os_version" = "24.04" ]; then
+        handle_ubuntu_noble_keys
+    fi
+    
+    # 更新 APT
+    if apt -q update; then
+        log "阿里源配置完成！"
+    else
+        log "错误: APT 更新失败"
+        restore_apt_backup "${timestamp}"
+        return 1
+    fi
+}
+
+# 生成 APT 源文件
+#!/bin/bash
+
+generate_apt_sources() {
+    local os_id="$1"
+    local codename="$2"
+    local os_version="$3"
+    
+    # 确定协议：通常http即可，除非源服务器强制要求https
+    local protocol="http"
+    # 注释掉可能导致问题的强制https逻辑，根据需要启用
+    # if [ "$os_id" = "ubuntu" ] && [ "$os_version" = "24.04" ]; then
+    #     protocol="https"
+    # fi
+    
+    # 备份原文件
+    cp /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null || true
+    echo "已将原/etc/apt/sources.list备份为/etc/apt/sources.list.bak"
+    
+    # 根据不同的发行版生成对应的源
+    case "${os_id}" in
+        ubuntu)
+            cat > /etc/apt/sources.list << EOF
+# 阿里云 Ubuntu ${os_version} (${codename}) 镜像源
+# 主源
+deb ${protocol}://mirrors.aliyun.com/ubuntu/ ${codename} main restricted universe multiverse
+deb-src ${protocol}://mirrors.aliyun.com/ubuntu/ ${codename} main restricted universe multiverse
+# 安全更新源
+deb ${protocol}://mirrors.aliyun.com/ubuntu/ ${codename}-security main restricted universe multiverse
+deb-src ${protocol}://mirrors.aliyun.com/ubuntu/ ${codename}-security main restricted universe multiverse
+# 软件更新源
+deb ${protocol}://mirrors.aliyun.com/ubuntu/ ${codename}-updates main restricted universe multiverse
+deb-src ${protocol}://mirrors.aliyun.com/ubuntu/ ${codename}-updates main restricted universe multiverse
+# 可选：向后移植源 (backports)
+deb ${protocol}://mirrors.aliyun.com/ubuntu/ ${codename}-backports main restricted universe multiverse
+deb-src ${protocol}://mirrors.aliyun.com/ubuntu/ ${codename}-backports main restricted universe multiverse
+EOF
+            # 针对24.04版本，可按需添加proposed源（默认不推荐，因为包含测试中软件）
+            # if [ "$os_version" = "24.04" ]; then
+            #     cat >> /etc/apt/sources.list << EOF
+            # # 预发布源 (proposed) - 谨慎使用
+            # deb ${protocol}://mirrors.aliyun.com/ubuntu/ ${codename}-proposed main restricted universe multiverse
+            # deb-src ${protocol}://mirrors.aliyun.com/ubuntu/ ${codename}-proposed main restricted universe multiverse
+            # EOF
+            # fi
+            ;;
+        debian)
+            # 关键修复：Debian的安全更新使用独立的URI，且组件名称不同[3](@ref)
+            cat > /etc/apt/sources.list << EOF
+# 阿里云 Debian ${os_version} (${codename}) 镜像源
+# 主源
+deb ${protocol}://mirrors.aliyun.com/debian/ ${codename} main contrib non-free non-free-firmware
+deb-src ${protocol}://mirrors.aliyun.com/debian/ ${codename} main contrib non-free non-free-firmware
+# 安全更新源 (注意：Debian安全源地址是独立的)
+deb ${protocol}://mirrors.aliyun.com/debian-security/ ${codename}-security main contrib non-free non-free-firmware
+deb-src ${protocol}://mirrors.aliyun.com/debian-security/ ${codename}-security main contrib non-free non-free-firmware
+# 软件更新源
+deb ${protocol}://mirrors.aliyun.com/debian/ ${codename}-updates main contrib non-free non-free-firmware
+deb-src ${protocol}://mirrors.aliyun.com/debian/ ${codename}-updates main contrib non-free non-free-firmware
+# 可选：向后移植源 (backports)
+deb ${protocol}://mirrors.aliyun.com/debian/ ${codename}-backports main contrib non-free non-free-firmware
+deb-src ${protocol}://mirrors.aliyun.com/debian/ ${codename}-backports main contrib non-free non-free-firmware
+EOF
+            ;;
+        *)
+            echo "错误：不支持的操作系统 '${os_id}'" >&2
+            return 1
+            ;;
+    esac
+    
+    echo "已成功为 ${os_id} ${os_version} (${codename}) 生成阿里云镜像源配置。"
+    echo "文件位置：/etc/apt/sources.list"
+    return 0
+}
+
+
+# 备份 APT 源文件
+backup_apt_sources() {
+    local timestamp="$1"
+    local backup_dir="/etc/apt/backups"
+    
+    mkdir -p "${backup_dir}"
+    
+    if [ -f /etc/apt/sources.list ]; then
+        cp /etc/apt/sources.list "${backup_dir}/sources.list.bak.${timestamp}"
+        log "已备份原有源文件到: ${backup_dir}/sources.list.bak.${timestamp}"
+    fi
+    
+    if [ -d /etc/apt/sources.list.d/ ]; then
+        tar -czf "${backup_dir}/sources.list.d.bak.${timestamp}.tar.gz" -C /etc/apt/sources.list.d/ .
+        log "已备份 sources.list.d 目录"
+    fi
+}
+
+# 恢复备份
+restore_apt_backup() {
+    local timestamp="$1"
+    local backup_dir="/etc/apt/backups"
+    
+    if [ -f "${backup_dir}/sources.list.bak.${timestamp}" ]; then
+        cp -f "${backup_dir}/sources.list.bak.${timestamp}" /etc/apt/sources.list
+        log "已恢复源文件备份"
+    fi
+    
+    if [ -f "${backup_dir}/sources.list.d.bak.${timestamp}.tar.gz" ]; then
+        tar -xzf "${backup_dir}/sources.list.d.bak.${timestamp}.tar.gz" -C /etc/apt/sources.list.d/
+        log "已恢复 sources.list.d 目录备份"
+    fi
+}
+
+# 处理 Ubuntu 24.04 的 GPG 密钥
+handle_ubuntu_noble_keys() {
+    local key_id="871920D1991BC93C"
+    local key_file="/etc/apt/trusted.gpg.d/aliyun-ubuntu-archive.asc"
+    
+    log "为 Ubuntu 24.04 添加阿里云 GPG 密钥..."
+    
+    # 尝试从多个 keyserver 获取密钥
+    local keyservers=("keyserver.ubuntu.com" "hkp://keyserver.ubuntu.com:80" "hkp://pgp.mit.edu:80")
+    
+    for server in "${keyservers[@]}"; do
+        if gpg --keyserver "$server" --recv-keys "$key_id" 2>/dev/null; then
+            break
+        fi
+    done
+    
+    # 导出密钥
+    if gpg --export --armor "$key_id" | tee "$key_file" >/dev/null; then
+        log "GPG 密钥添加成功"
+    else
+        log "警告: 无法添加 GPG 密钥，可能需要手动处理"
+    fi
+}
+
+# 恢复单个文件备份
+restore_backup() {
+    local original="$1"
+    local backup="$2"
+    
+    if [ -f "$backup" ]; then
+        cp -f "$backup" "$original"
+        log "已恢复备份: $original"
+    fi
+}
+
+##########################################
+Install-Napcat() {
+    # 1. 获取系统环境信息
+    Get-Environment
+    
+    echo "开始部署 NapCat，检测到的环境：${os_name} (${os_id})"
+    
+    # 2. 根据环境智能选择安装方式
+    case "${envType}" in
+        termux|mt)
+            log.warn "移动端环境检测到Docker支持有限，请参考官方文档手动安装。"
+            return 1
+            ;;
+        unix)
+            # Unix/Linux环境：根据发行版判断
+            Install-Napcat-On-Unix
+            ;;
+        *)
+            # 其他未知环境：默认使用Docker
+            log.info "当前为 ${envType} 环境，将使用Docker方式安装NapCat。"
+            Install-Napcat-With-Docker
+            ;;
+    esac
+    
+    # 3. 打印安装后指引
+    local result=$?
+    if [[ $result -eq 0 ]]; then
+        echo "--------------------------------------------------"
+        log.success "NapCat 安装流程已启动完成！"
+        echo "接下来你需要："
+        echo "1. 通过日志获取WebUI访问地址（通常为 http://<IP>:6099/webui/ ）和登录Token[citation:1]。"
+        echo "2. 使用浏览器访问该地址，输入Token并登录。"
+        echo "3. 在WebUI中扫码登录你的QQ账号[citation:2]。"
+        echo "4. 根据你的机器人框架（如AstrBot），在NapCat的网络配置中添加WebSocket客户端连接[citation:2]。"
+        echo "--------------------------------------------------"
+    fi
+    return $result
+}
+
+Install-Napcat-On-Unix() {
+    echo "正在检测Linux发行版对原生Shell安装的支持情况..."
+    
+    # 判断是否属于官方Shell脚本支持的发行版
+    local use_shell_install=false
+    case "${os_id}" in
+        ubuntu)
+            # 支持多位数版本号检测（如20.04、22.04等）
+            if [[ "${os_version}" =~ ^([0-9]+) ]]; then
+                local major_ver="${BASH_REMATCH[1]}"
+                [[ $major_ver -ge 20 ]] && use_shell_install=true
+            fi
+            ;;
+        debian)
+            if [[ "${os_version}" =~ ^([0-9]+) ]]; then
+                local major_ver="${BASH_REMATCH[1]}"
+                [[ $major_ver -ge 10 ]] && use_shell_install=true
+            fi
+            ;;
+        centos|rhel)
+            # 支持CentOS/RHEL 7/8/9等版本检测
+            if [[ "${os_version}" =~ ^([0-9]+) ]]; then
+                local major_ver="${BASH_REMATCH[1]}"
+                [[ $major_ver -ge 9 ]] && use_shell_install=true
+            fi
+            ;;
+        fedora|arch|opensuse|alpine)
+            # 这些发行版官方文档未明确提及一键脚本支持，推荐使用Docker
+            use_shell_install=false
+            ;;
+    esac
+    
+    # 执行安装
+    if [[ "$use_shell_install" == true ]]; then
+        log.info "当前系统 ${os_id} ${os_version} 支持原生Shell安装，将使用一键脚本。"
+        Install-Napcat-With-Shell
+    else
+        log.info "当前系统 ${os_id} ${os_version} 未在官方Shell脚本明确支持列表中，或版本较低。"
+        log.info "为确保兼容性和稳定性，将使用Docker方式安装。"
+        Install-Napcat-With-Docker
+    fi
+}
+
+
+Install-Napcat-With-Shell() {
+    echo "开始通过官方Shell脚本安装NapCat..."
+    # 使用官方提供的安装脚本[citation:1]
+    # 国内用户可以考虑替换URL为镜像源以加速
+    local install_cmd="curl -o napcat.sh https://raw.githubusercontent.com/NapNeko/NapCat-Installer/refs/heads/main/script/install.sh && sudo bash napcat.sh --tui"
+    
+    log.info "执行命令: $install_cmd"
+    echo "请注意：此脚本可能需要sudo权限，并会启动交互式安装界面(TUI)。"
+    read -p "是否继续？(y/N): " confirm
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        log.warn "已取消Shell安装。"
+        return 1
+    fi
+    
+    # 执行安装
+    eval $install_cmd
+    if [[ $? -eq 0 ]]; then
+        log.success "NapCat Shell 安装脚本执行完毕。"
+        return 0
+    else
+        log.error "Shell 安装过程出现错误。"
+        return 1
+    fi
+}
+
+Install-Napcat-With-Docker() {
+    echo "开始通过Docker安装NapCat..."
+    
+    # 检查Docker是否已安装
+    if ! command -v docker &>/dev/null; then
+        log.error "未检测到Docker，请先安装Docker。"
+        return 1
+    fi
+    
+    local docker_cmd="docker run -d \
+--name napcat \
+--restart=always \
+-p 3000:3000 \
+-p 3001:3001 \
+-p 6099:6099 \
+-e NAPCAT_GID=$(id -g) \
+-e NAPCAT_UID=$(id -u) \
+mlikiowa/napcat-docker:latest"
+    
+    log.info "执行命令: $docker_cmd"
+    echo "这将拉取最新的NapCat Docker镜像并启动容器。"
+    read -p "是否继续？(y/N): " confirm
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        log.warn "已取消Docker安装。"
+        return 1
+    fi
+    
+    # 执行Docker命令[citation:3]
+    eval $docker_cmd
+    if [[ $? -eq 0 ]]; then
+        log.success "NapCat Docker 容器已启动。"
+        echo "提示: 可以使用 'docker logs napcat' 查看启动日志和WebUI Token。"
+        return 0
+    else
+        log.error "Docker 容器启动失败。"
+        return 1
+    fi
+}
+
+#######################################
+Get-Environment() {
+    # 声明全局变量
+    declare -g envType os_id os_name os_version pkg_manager
+    
+    # 重置变量状态
+    envType="unknown"
+    os_id=""
+    os_name=""
+    os_version=""
+    pkg_manager=""
+    
+    # 首先检查是否为 Termux 环境（通过环境变量更可靠）
+    if [[ -n "${TERMUX_VERSION}" ]] || [[ "${PREFIX}" == /data/data/com.termux/* ]] || \
+       [[ "$(uname -o 2>/dev/null)" == "Android" ]]; then
+        envType="termux"
+        return 0
+    fi
+    
+    # 检查是否为 MT Manager 环境
+    if [[ -n "${MT_MANAGER}" ]] || [[ "${PATH}" == *bin.mt.plus* ]] || \
+       [[ "$(whoami 2>/dev/null)" == "u0_a"* ]] && [[ -d "/data/data/bin.mt.plus" ]]; then
+        envType="mt"
+        return 0
+    fi
+    
+    # 检测 Linux/Unix 发行版
+    detect_unix_environment
+}
+
+detect_unix_environment() {
+    # 优先使用 lsb_release 获取发行版信息（更标准）
+    if command -v lsb_release >/dev/null 2>&1; then
+        os_id=$(lsb_release -si 2>/dev/null | tr '[:upper:]' '[:lower:]')
+        os_name=$(lsb_release -sd 2>/dev/null | tr -d '"')
+        os_version=$(lsb_release -sr 2>/dev/null)
+    # 回退到读取 os-release 文件
+    elif [[ -f "/etc/os-release" ]]; then
+        read_os_release_file
+    # 再次回退：尝试其他发行版文件
+    elif [[ -f "/etc/debian_version" ]]; then
+        os_id="debian"
+        os_version=$(cat /etc/debian_version)
+        os_name="Debian GNU/Linux"
+    elif [[ -f "/etc/redhat-release" ]]; then
+        parse_redhat_release
+    elif [[ -f "/etc/arch-release" ]]; then
+        os_id="arch"
+        os_name="Arch Linux"
+    fi
+    
+    # 如果仍然没有检测到，尝试 uname
+    if [[ -z "${os_id}" ]]; then
+        case "$(uname -s)" in
+            Linux*)  os_id="linux" ;;
+            Darwin*) os_id="macos" ;;
+            CYGWIN*|MINGW*|MSYS*) os_id="windows" ;;
+            *)       os_id="unknown" ;;
+        esac
+        os_name="$(uname -s)"
+        os_version="$(uname -r)"
+    fi
+    
+    # 检测包管理器
+    detect_package_manager
+    
+    # 根据包管理器设置环境类型
+    if [[ -n "${pkg_manager}" ]]; then
+        envType="unix"
+    else
+        envType="unknown"
+    fi
+}
+
+# 读取 /etc/os-release 文件
+read_os_release_file() {
+    # 使用 source 命令加载文件到临时环境，避免变量污染
+    local os_release_file="/etc/os-release"
+    
+    if [[ ! -f "${os_release_file}" ]] || [[ ! -r "${os_release_file}" ]]; then
+        return 1
+    fi
+    
+    # 使用安全的方式读取变量
+    while IFS='=' read -r key value; do
+        # 移除可能的引号和空格
+        key="${key%%[[:space:]]*}"
+        value="${value#\"}"
+        value="${value%\"}"
+        
+        case "${key}" in
+            ID) os_id="${value}" ;;
+            NAME) os_name="${value}" ;;
+            VERSION_ID) os_version="${value}" ;;
+            PRETTY_NAME) [[ -z "${os_name}" ]] && os_name="${value}" ;;
+        esac
+    done < "${os_release_file}"
+    
+    # 特殊处理：CentOS 和 RHEL 在旧版本中可能使用 ID=centos/ID=rhel
+    if [[ "${os_id}" == "centos" ]] || [[ "${os_id}" == "rhel" ]]; then
+        # 检查是否有 redhat-release 文件获取更准确的信息
+        if [[ -f "/etc/redhat-release" ]]; then
+            parse_redhat_release
+        fi
+    fi
+}
+
+# 解析 RedHat 系发行版信息
+parse_redhat_release() {
+    local redhat_file="/etc/redhat-release"
+    local release_content
+    
+    if [[ ! -f "${redhat_file}" ]]; then
+        return 1
+    fi
+    
+    release_content=$(cat "${redhat_file}")
+    
+    if [[ "${release_content}" == *"CentOS"* ]]; then
+        os_id="centos"
+        os_name="CentOS Linux"
+        # 提取版本号
+        if [[ "${release_content}" =~ release[[:space:]]*([0-9]+(\.[0-9]+)*) ]]; then
+            os_version="${BASH_REMATCH[1]}"
+        fi
+    elif [[ "${release_content}" == *"Red Hat"* ]]; then
+        os_id="rhel"
+        os_name="Red Hat Enterprise Linux"
+        if [[ "${release_content}" =~ release[[:space:]]*([0-9]+(\.[0-9]+)*) ]]; then
+            os_version="${BASH_REMATCH[1]}"
+        fi
+    elif [[ "${release_content}" == *"Fedora"* ]]; then
+        os_id="fedora"
+        os_name="Fedora"
+        if [[ "${release_content}" =~ release[[:space:]]*([0-9]+) ]]; then
+            os_version="${BASH_REMATCH[1]}"
+        fi
+    fi
+}
+
+# 检测包管理器
+detect_package_manager() {
+    # 定义包管理器及其检测命令
+    declare -A managers=(
+        ["apt"]="dpkg"          # Debian/Ubuntu
+        ["apt-get"]="dpkg"      # Debian/Ubuntu (传统)
+        ["dnf"]="rpm"           # Fedora/RHEL 8+
+        ["yum"]="rpm"           # RHEL/CentOS 7及以下
+        ["pacman"]="pacman"     # Arch/Manjaro
+        ["zypper"]="rpm"        # openSUSE
+        ["apk"]="apk"           # Alpine
+        ["emerge"]="emerge"     # Gentoo
+        ["nix"]="nix"           # NixOS
+    )
+    
+    # 按优先级顺序检查包管理器
+    local priority_managers=("apt" "dnf" "yum" "pacman" "zypper" "apk" "emerge" "nix" "apt-get")
+    
+    for manager in "${priority_managers[@]}"; do
+        # 检查包管理器命令是否存在
+        if command -v "${manager}" >/dev/null 2>&1; then
+            # 进一步验证：检查对应的包管理工具是否存在
+            local required_cmd="${managers[$manager]}"
+            if [[ -n "${required_cmd}" ]] && command -v "${required_cmd}" >/dev/null 2>&1; then
+                pkg_manager="${manager}"
+                return 0
+            fi
+        fi
+    done
+    
+    # 特殊处理：macOS 的包管理器
+    if [[ "${os_id}" == "macos" ]]; then
+        if command -v "brew" >/dev/null 2>&1; then
+            pkg_manager="brew"
+            return 0
+        fi
+    fi
+    
+    # 如果以上都没找到，尝试其他方法
+    if [[ -z "${pkg_manager}" ]]; then
+        # 根据发行版推断可能的包管理器
+        case "${os_id}" in
+            debian|ubuntu|linuxmint) pkg_manager="apt" ;;
+            fedora|rhel|centos) pkg_manager="dnf" ;;
+            arch|manjaro) pkg_manager="pacman" ;;
+            opensuse|suse) pkg_manager="zypper" ;;
+            alpine) pkg_manager="apk" ;;
+            gentoo) pkg_manager="emerge" ;;
+            nixos) pkg_manager="nix" ;;
+        esac
+    fi
+    
+    return 0
+}
+
+# 辅助函数：获取更详细的环境信息
+Get-Detailed-Environment() {
+    Get-Environment  # 确保基础信息已获取
+    
+    local arch="$(uname -m)"
+    local kernel="$(uname -r)"
+    local shell_name="$(basename "${SHELL}")"
+    local user="$(whoami 2>/dev/null || echo "unknown")"
+    
+    cat << EOF
+=== 环境检测报告 ===
+环境类型: ${envType}
+操作系统: ${os_name}
+发行版ID: ${os_id}
+版本号: ${os_version}
+包管理器: ${pkg_manager:-未检测到}
+系统架构: ${arch}
+内核版本: ${kernel}
+当前用户: ${user}
+当前Shell: ${shell_name}
+EOF
+    
+    # 如果是容器环境，额外显示信息
+    if [[ -f "/.dockerenv" ]] || grep -q "docker" /proc/1/cgroup 2>/dev/null; then
+        log "容器环境: 是 (Docker)"
+    elif [[ -f "/run/.containerenv" ]]; then
+        log "容器环境: 是 (Podman)"
+    fi
+    
+    # 如果是虚拟环境，额外显示信息
+    if [[ -f "/sys/hypervisor/uuid" ]] || \
+       dmesg 2>/dev/null | grep -q "Hypervisor detected"; then
+        log "虚拟化环境: 是"
+    fi
+}
+
+# ======================== 配置部分 ========================
+declare -A NETWORK_PROXY_CONFIGS
+
+# 初始化配置（可以从外部配置文件加载）
+init_network_configs() {
+    NETWORK_PROXY_CONFIGS=(
+        ["Github"]="
+            proxy_urls=https://ghfast.top,https://git.yylx.win/,https://gh-proxy.com,https://ghfile.geekertao.top,https://gh-proxy.net,https://j.1win.ggff.net,https://ghm.078465.xyz,https://gitproxy.127731.xyz,https://jiashu.1win.eu.org,https://github.tbedu.top
+            check_url=https://raw.githubusercontent.com/NapNeko/NapCatQQ/main/package.json
+            valid_status_codes=200
+            description=GitHub加速代理
+        "
+        ["Docker"]="
+            proxy_urls=docker.1ms.run,docker.xuanyuan.me,docker.mybacc.com,dytt.online,lispy.org
+            check_url=
+            valid_status_codes=200,301,302
+            description=Docker镜像代理
+        "
+    )
+}
+
+# 获取配置
+get_network_config() {
+    local target="$1"
+    local config_key="$2"
+    
+    if [[ -z "${NETWORK_PROXY_CONFIGS[$target]}" ]]; then
+        echo ""
+        return 1
+    fi
+    
+    # 从配置字符串中提取指定的配置项
+    local config_string="${NETWORK_PROXY_CONFIGS[$target]}"
+    
+    # 移除换行符和多余空格，将配置转换为key=value格式
+    config_string=$(echo "$config_string" | tr '\n' ' ' | sed 's/\s\+/ /g')
+    
+    # 提取指定的配置项
+    local pattern="[[:space:]]*${config_key}=([^[:space:]]+)"
+    if [[ "$config_string" =~ $pattern ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    
+    echo ""
+    return 1
+}
+
+# ======================== 核心测试函数 ========================
+
+# 测试单个连接（代理或直连）
+test_connection() {
+    local proxy_url="$1"
+    local check_url="$2"
+    local timeout="$3"
+    local target_type="$4"
+    
+    local test_url
+    if [[ -z "$proxy_url" ]]; then
+        # 直连测试
+        test_url="$check_url"
+    else
+        # 代理测试
+        if [[ -z "$check_url" ]]; then
+            # Docker类型测试代理根路径
+            test_url="${proxy_url}/"
+        else
+            test_url="${proxy_url}/${check_url}"
+        fi
+    fi
+    
+    # 如果test_url为空，无法测试
+    if [[ -z "$test_url" ]]; then
+        echo "0:0:0"  # status:exit_code:speed
+        return 1
+    fi
+    
+    # 执行curl测试
+    local curl_output
+    curl_output=$(curl -k -L --connect-timeout "$timeout" --max-time "$((timeout * 3))" \
+        -o /dev/null -s -w "%{http_code}:%{exitcode}:%{speed_download}" \
+        "$test_url" 2>/dev/null || echo "0:1:0")
+    
+    echo "$curl_output"
+    return 0
+}
+
+# 验证测试结果是否符合要求
+validate_test_result() {
+    local status="$1"
+    local curl_exit_code="$2"
+    local target_type="$3"
+    
+    if [[ "$curl_exit_code" -ne 0 ]]; then
+        return 1
+    fi
+    
+    # 获取有效的状态码列表
+    local valid_codes_str
+    valid_codes_str=$(get_network_config "$target_type" "valid_status_codes")
+    IFS=',' read -r -a valid_codes <<< "$valid_codes_str"
+    
+    # 检查状态码是否在有效列表中
+    for code in "${valid_codes[@]}"; do
+        if [[ "$status" -eq "$code" ]]; then
+            return 0
+        fi
+    done
+    
+    return 1
+}
+
+# 测试直连连接
+test_direct_connection() {
+    local check_url="$1"
+    local timeout="$2"
+    local target_type="$3"
+    
+    if [[ -z "$check_url" ]]; then
+        echo "0:0"  # speed:success
+        return
+    fi
+    
+    local result
+    result=$(test_connection "" "$check_url" "$timeout" "$target_type")
+    
+    local status exit_code speed
+    IFS=':' read -r status exit_code speed <<< "$result"
+    
+    if validate_test_result "$status" "$exit_code" "$target_type"; then
+        echo "$speed:1"  # 成功
+    else
+        echo "0:0"  # 失败
+    fi
+}
+
+# 测试所有代理并找到最佳代理
+find_best_proxy() {
+    local target_type="$1"
+    local check_url="$2"
+    local timeout="$3"
+    
+    local proxy_urls_str
+    proxy_urls_str=$(get_network_config "$target_type" "proxy_urls")
+    IFS=',' read -r -a proxy_urls <<< "$proxy_urls_str"
+    
+    local best_speed=0
+    local best_proxy=""
+    
+    for proxy_url in "${proxy_urls[@]}"; do
+        log "测速: $proxy_url ..."
+        
+        local result
+        result=$(test_connection "$proxy_url" "$check_url" "$timeout" "$target_type")
+        
+        local status exit_code speed
+        IFS=':' read -r status exit_code speed <<< "$result"
+        
+        if validate_test_result "$status" "$exit_code" "$target_type"; then
+            local formatted_speed
+            formatted_speed=$(format_speed "$speed")
+            log "测速: $proxy_url - $formatted_speed"
+            
+            if [[ $speed -gt $best_speed ]]; then
+                best_speed=$speed
+                best_proxy=$proxy_url
+            fi
+        fi
+    done
+    
+    echo "$best_proxy:$best_speed"
+}
+
+# ======================== 格式化和工具函数 ========================
+
+# 格式化速度显示
+format_speed() {
+    local speed="$1"
+    
+    if [[ -z "$speed" ]] || [[ "$speed" -eq 0 ]]; then
+        echo "0 B/s"
+        return
+    fi
+    
+    if [[ $speed -gt 1048576 ]]; then
+        printf "%.2f MB/s" "$(echo "scale=2; $speed / 1048576" | bc)"
+    elif [[ $speed -gt 1024 ]]; then
+        printf "%.2f KB/s" "$(echo "scale=2; $speed / 1024" | bc)"
+    else
+        printf "%d B/s" "$speed"
+    fi
+}
+
+# ======================== 主控制函数 ========================
+
+# 处理手动指定代理
+handle_manual_proxy() {
+    local proxy_index="$1"
+    local target_type="$2"
+    
+    local proxy_urls_str
+    proxy_urls_str=$(get_network_config "$target_type" "proxy_urls")
+    IFS=',' read -r -a proxy_urls <<< "$proxy_urls_str"
+    
+    if [[ $proxy_index -ge 1 ]] && [[ $proxy_index -le ${#proxy_urls[@]} ]]; then
+        local proxy_url="${proxy_urls[$((proxy_index - 1))]}"
+        log "手动指定代理: $proxy_url"
+        echo "$proxy_url"
+        return 0
+    fi
+    
+    echo ""
+    return 1
+}
+
+# 处理禁用代理（直连测试）
+handle_direct_connection() {
+    local check_url="$1"
+    local timeout="$2"
+    local target_type="$3"
+    
+    log "代理已通过参数关闭 (序号 0), 将直接连接 ${target_type}..."
+    
+    if [[ -n "$check_url" ]]; then
+        local result
+        result=$(test_direct_connection "$check_url" "$timeout" "$target_type")
+        
+        local speed success
+        IFS=':' read -r speed success <<< "$result"
+        
+        if [[ $success -eq 1 ]]; then
+            log "直连 ${target_type} (${check_url}) 测试成功。"
+        else
+            log "警告: 直连 ${target_type} (${check_url}) 测试失败或网络不通。"
+        fi
+    else
+        log "无检查URL (${target_type}), 代理关闭状态下不执行网络测试。"
+    fi
+    
+    echo ""  # 返回空代理
+}
+
+# 自动选择最佳代理
+handle_auto_proxy() {
+    local target_type="$1"
+    local check_url="$2"
+    local timeout="$3"
+    
+    log "代理设置为自动测试, 正在检查 ${target_type} 代理可用性并测速..."
+    
+    # 首先测试直连
+    local direct_speed=0
+    if [[ -n "$check_url" ]]; then
+        log "测速: 直连..."
+        local direct_result
+        direct_result=$(test_direct_connection "$check_url" "$timeout" "$target_type")
+        
+        local direct_speed_val direct_success
+        IFS=':' read -r direct_speed_val direct_success <<< "$direct_result"
+        
+        if [[ $direct_success -eq 1 ]]; then
+            local formatted_speed
+            formatted_speed=$(format_speed "$direct_speed_val")
+            log "测速: 直连 - $formatted_speed"
+            direct_speed=$direct_speed_val
+        else
+            log "直连测试失败或超时。"
+        fi
+    fi
+    
+    # 测试所有代理并找到最佳
+    local best_result
+    best_result=$(find_best_proxy "$target_type" "$check_url" "$timeout")
+    
+    local best_proxy best_speed
+    IFS=':' read -r best_proxy best_speed <<< "$best_result"
+    
+    # 选择最佳连接方式
+    local final_proxy=""
+    if [[ $best_speed -gt $direct_speed ]]; then
+        final_proxy="$best_proxy"
+        local formatted_speed
+        formatted_speed=$(format_speed "$best_speed")
+        log "测试完成, 将使用最快的 ${target_type} 代理: $final_proxy (速度: $formatted_speed)"
+    elif [[ $direct_speed -gt 0 ]]; then
+        final_proxy=""
+        local formatted_speed
+        formatted_speed=$(format_speed "$direct_speed")
+        log "测试完成, 直连速度最快 (速度: $formatted_speed), 将不使用代理。"
+    else
+        log "警告: 无法找到可用的 ${target_type} 代理且直连失败。"
+    fi
+    
+    echo "$final_proxy"
+}
+
+# ======================== 主入口函数 ========================
+network_test() {
+    local target_type="${1:-Github}"
+    local proxy_num_arg="${2:-auto}"
+    
+    # 初始化配置
+    if [[ ${#NETWORK_PROXY_CONFIGS[@]} -eq 0 ]]; then
+        init_network_configs
+    fi
+    
+    # 验证目标类型
+    if [[ -z "${NETWORK_PROXY_CONFIGS[$target_type]}" ]]; then
+        log "错误: 未知的网络测试目标 '$target_type', 使用默认的 Github"
+        target_type="Github"
+    fi
+    
+    # 获取配置
+    local check_url
+    check_url=$(get_network_config "$target_type" "check_url")
+    
+    local timeout=10
+    local target_proxy=""
+    
+    log "开始网络测试: $target_type..."
+    log "命令行传入代理参数: '$proxy_num_arg'"
+    
+    # 根据代理参数选择处理方式
+    case "$proxy_num_arg" in
+        # 手动指定代理（数字）
+        [0-9]*)
+            if [[ "$proxy_num_arg" == "0" ]]; then
+                # 禁用代理
+                target_proxy=$(handle_direct_connection "$check_url" "$timeout" "$target_type")
+            else
+                # 指定代理序号
+                target_proxy=$(handle_manual_proxy "$proxy_num_arg" "$target_type")
+                if [[ -z "$target_proxy" ]]; then
+                    log "警告: 指定的代理序号 '$proxy_num_arg' 无效，切换到自动模式"
+                    target_proxy=$(handle_auto_proxy "$target_type" "$check_url" "$timeout")
+                fi
+            fi
+            ;;
+        # 自动模式或无效参数
+        *)
+            target_proxy=$(handle_auto_proxy "$target_type" "$check_url" "$timeout")
+            ;;
+    esac
+    
+    # 设置全局变量（保持与原函数兼容）
+    target_proxy="$target_proxy"
+    
+    # 返回结果（也可以通过全局变量使用）
+    echo "$target_proxy"
+}
+
+# ======================== 扩展功能 ========================
+
+# 批量测试所有配置的目标
+test_all_network_targets() {
+    local proxy_arg="${1:-auto}"
+    
+    init_network_configs
+    
+    declare -A results
+    for target_type in "${!NETWORK_PROXY_CONFIGS[@]}"; do
+        log "测试目标: $target_type"
+        results["$target_type"]=$(network_test "$target_type" "$proxy_arg")
+    done
+    
+    # 输出结果汇总
+    echo "===== 网络测试结果汇总 ====="
+    for target_type in "${!results[@]}"; do
+        local proxy="${results[$target_type]}"
+        if [[ -n "$proxy" ]]; then
+            echo "$target_type: 使用代理 $proxy"
+        else
+            echo "$target_type: 直连"
+        fi
+    done
+}
+
+# 获取代理URL列表（用于显示帮助信息）
+get_proxy_list() {
+    local target_type="${1:-Github}"
+    
+    init_network_configs
+    
+    if [[ -z "${NETWORK_PROXY_CONFIGS[$target_type]}" ]]; then
+        echo "错误: 未知的目标类型 '$target_type'"
+        return 1
+    fi
+    
+    local proxy_urls_str
+    proxy_urls_str=$(get_network_config "$target_type" "proxy_urls")
+    IFS=',' read -r -a proxy_urls <<< "$proxy_urls_str"
+    
+    echo "===== $target_type 代理列表 ====="
+    for i in "${!proxy_urls[@]}"; do
+        echo "$((i+1)). ${proxy_urls[$i]}"
+    done
+}
+
+# 验证特定代理是否可用
+validate_specific_proxy() {
+    local proxy_url="$1"
+    local target_type="${2:-Github}"
+    local timeout="${3:-10}"
+    
+    init_network_configs
+    
+    local check_url
+    check_url=$(get_network_config "$target_type" "check_url")
+    
+    local result
+    result=$(test_connection "$proxy_url" "$check_url" "$timeout" "$target_type")
+    
+    local status exit_code speed
+    IFS=':' read -r status exit_code speed <<< "$result"
+    
+    if validate_test_result "$status" "$exit_code" "$target_type"; then
+        local formatted_speed
+        formatted_speed=$(format_speed "$speed")
+        log "可用 (速度: $formatted_speed)"
+        return 0
+    else
+        log "不可用 (状态码: $status, 退出码: $exit_code)"
+        return 1
+    fi
+}
+# Get-MaiMaiRepository
+main(){
+    Get-Environment
+    Update-PackageSources
+    Install-Napcat
+    Install-Package git wget unzip bc
+    {
+        network_test
+        Get-MaiMaiRepository
+    }
+}
+main
