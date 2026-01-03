@@ -139,6 +139,8 @@ GIT:post_process() {
 #############################################
 ## 3. 主入口
 #############################################
+# Get-MaiMaiRepository MaiBot main git "" ""
+# Get-MaiMaiRepository Adapter main git "" ""
 Get-MaiMaiRepository() {
     local target=${1:-} tag=${2:-} way=${3:-git} proxy=${4:-} custom_dir=${5:-}
     [[ -z $target || -z $tag ]] && { log.error "目标/标签不能为空"; return 1; }

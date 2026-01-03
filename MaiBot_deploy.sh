@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# ------------------------------------------------------------
-#  Get-MaiMaiRepository —— 一键拉取 MaiBot 主仓库或适配器
-# ------------------------------------------------------------
 
+
+#################################################
 #全局变量部分，例如颜色
 # ── 基础 8 色（标准/高亮） ------------------------
 BLACK=$'\033[0;1;30;90m'   #  黑色
@@ -31,7 +30,12 @@ DIM=$'\033[2m'       # 暗淡
 UNDERLINE=$'\033[4m' # 下划线
 BLINK=$'\033[5m'     # 闪烁（部分终端不支持）
 NC=$'\033[0m'        # 复位所有属性
+################################################
 
+##################################################
+# ------------------------------------------------------------
+#  Get-MaiMaiRepository —— 一键拉取 MaiBot 主仓库或适配器
+# ------------------------------------------------------------
 #############################################
 ## 1. 常量表（全局）
 #############################################
@@ -134,7 +138,7 @@ GIT:download_repository() {
             ;;
         zip)
             local tmpdir tmpzip
-            tmpdir=$(mktemp -d) && trap "rm -rf '$tmpdir'" RETURN
+            tmpdir=$(mktemp -d) && trap 'rm -rf $tmpdir' RETURN
             tmpzip=$tmpdir/dl.zip
             wget -O "$tmpzip" "$url" >&2
             unzip -q "$tmpzip" -d "$tmpdir"
@@ -146,6 +150,7 @@ GIT:download_repository() {
             return 1
             ;;
     esac
+    return $?
 }
 
 # 后处理：切分支 + 适配器黑名单
@@ -215,6 +220,9 @@ Get-MaiMaiRepository() {
     log.error "3 次重试均失败，放弃"
     return 1
 }
+#####################################
+
+###################################
 # ------ 1. 日志等级定义 ------
 # 数值越小越重要；可通过 LOG_LEVEL 动态过滤
 declare -A LOG_LEVELS=(
@@ -280,14 +288,14 @@ log() {
 }
 
 # ------ 3. 快捷函数 ------
-log.fatal()  { log FATAL "$@";  }
-log.error()  { log ERROR "$@";  }
-log.warn()   { log WARN  "$@";  }
-log.info()   { log INFO  "$@";  }
+log.fatal()  { log FATAL   "$@";}
+log.error()  { log ERROR   "$@";}
+log.warn()   { log WARN    "$@";}
+log.info()   { log INFO    "$@";}
 log.success(){ log SUCCESS "$@";}
-log.debug()  { log DEBUG "$@";  }
-log.trace()  { log TRACE "$@";  }
-
+log.debug()  { log DEBUG   "$@";}
+log.trace()  { log TRACE   "$@";}
+#####################################
 
 ####################################
 Install-Package() {
@@ -549,12 +557,20 @@ Install-With-Emerge() {
 # Nix (NixOS)
 Install-With-Nix() {
     local packages=("$@")
-    
+    local pkg
     log.info "使用 nix 安装: ${packages[*]}"
     
-    # Nix 通常不需要 root 权限
-    nix-env -iA "nixpkgs.${packages[@]}" 2>/dev/null || \
-    nix-env -i "${packages[@]}"
+    # Nix 通常不需要 root 权限，逐个安装包（避免数组展开问题）
+    local failed=0
+    for pkg in "${packages[@]}"; do
+        nix-env -iA "nixpkgs.${pkg}" 2>/dev/null || \
+        nix-env -i "${pkg}" || {
+            log.error "安装失败: ${pkg}"
+            failed=1
+        }
+    done
+    
+    return $failed
 }
 
 # Brew (macOS)
@@ -714,17 +730,22 @@ Package-Installed() {
     
     return $?
 }
+##############################
 
+#############################
 Update-PackageSources() {
-    local backup_dir="/etc/apt/backups"
-    local timestamp=$(date +%Y%m%d_%H%M%S)
-    
+    local backup_dir
+    local timestamp
+    backup_dir="/etc/apt/backups"
+    timestamp=$(date +%Y%m%d_%H%M%S)
+
     case "${envType}" in
     "termux")
         update_termux_sources
         ;;
     "unix")
-        [[ "${answer}" =~ ^[Nn] ]] && return 0
+        read -r -p "是否确认将系统源更换为阿里源？此操作会修改 /etc/apt/sources.list 文件。 [y/N]: " answer
+        [[ "${answer}" =~ ^[Yy] ]] || return 0
         update_unix_sources
         ;;
     esac
@@ -950,6 +971,7 @@ restore_backup() {
         log "已恢复备份: $original"
     fi
 }
+##########################################
 
 ##########################################
 Install-Napcat() {
@@ -992,9 +1014,8 @@ Install-Napcat() {
 
 Install-Napcat-On-Unix() {
     echo "正在检测Linux发行版对原生Shell安装的支持情况..."
-    
     # 判断是否属于官方Shell脚本支持的发行版
-    local use_shell_install=false
+    use_shell_install=false
     case "${os_id}" in
         ubuntu)
             # 支持多位数版本号检测（如20.04、22.04等）
@@ -1038,65 +1059,56 @@ Install-Napcat-With-Shell() {
     echo "开始通过官方Shell脚本安装NapCat..."
     # 使用官方提供的安装脚本[citation:1]
     # 国内用户可以考虑替换URL为镜像源以加速
-    local install_cmd="curl -o napcat.sh https://raw.githubusercontent.com/NapNeko/NapCat-Installer/refs/heads/main/script/install.sh && sudo bash napcat.sh --tui"
-    
-    log.info "执行命令: $install_cmd"
-    echo "请注意：此脚本可能需要sudo权限，并会启动交互式安装界面(TUI)。"
-    read -p "是否继续？(y/N): " confirm
-    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-        log.warn "已取消Shell安装。"
-        return 1
-    fi
-    
-    # 执行安装
-    eval $install_cmd
+    # 使用官方安装脚本的稳定 raw 地址，改为非交互自动安装（Rootless Shell 安装）
+    local install_cmd="curl -sSL -o napcat.sh https://raw.githubusercontent.com/NapNeko/NapCat-Installer/main/script/install.sh && bash napcat.sh --docker n --cli y --proxy 0"
+
+    log.info "执行命令: ${install_cmd}"
+
+    # 直接执行非交互安装（便于自动化部署）
+    eval "${install_cmd}"
+    # shellcheck disable=SC2181
     if [[ $? -eq 0 ]]; then
-        log.success "NapCat Shell 安装脚本执行完毕。"
+        log.success "NapCat Shell 非交互安装已完成。"
         return 0
     else
-        log.error "Shell 安装过程出现错误。"
+        log.error "NapCat Shell 安装失败。"
         return 1
     fi
 }
 
 Install-Napcat-With-Docker() {
     echo "开始通过Docker安装NapCat..."
-    
-    # 检查Docker是否已安装
+    # 使用官方 NapCat 安装脚本的 Docker 非交互方式（更鲁棒）
+    # 非交互模式要求预先设置环境变量：NAPCAT_QQ (必需), NAPCAT_MODE (可选，默认 ws), NAPCAT_PROXY (可选，默认 0)
     if ! command -v docker &>/dev/null; then
         log.error "未检测到Docker，请先安装Docker。"
         return 1
     fi
-    
-    local docker_cmd="docker run -d \
---name napcat \
---restart=always \
--p 3000:3000 \
--p 3001:3001 \
--p 6099:6099 \
--e NAPCAT_GID=$(id -g) \
--e NAPCAT_UID=$(id -u) \
-mlikiowa/napcat-docker:latest"
-    
-    log.info "执行命令: $docker_cmd"
-    echo "这将拉取最新的NapCat Docker镜像并启动容器。"
-    read -p "是否继续？(y/N): " confirm
-    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-        log.warn "已取消Docker安装。"
+
+    local qq_env="${NAPCAT_QQ:-}"
+    local mode_env="${NAPCAT_MODE:-ws}"
+    local proxy_env="${NAPCAT_PROXY:-auto}"
+
+    if [[ -z "${qq_env}" ]]; then
+        log.error "非交互 Docker 安装需要预先设置环境变量 NAPCAT_QQ。"
+        log.info "示例： export NAPCAT_QQ=123456789; export NAPCAT_MODE=ws; export NAPCAT_PROXY=0"
         return 1
     fi
-    
-    # 执行Docker命令[citation:3]
-    eval $docker_cmd
+
+    local install_cmd="curl -sSL -o napcat.sh https://raw.githubusercontent.com/NapNeko/NapCat-Installer/main/script/install.sh && bash napcat.sh --docker y --qq \"${qq_env}\" --mode ${mode_env} --proxy ${proxy_env} --confirm y"
+
+    log.info "执行命令: ${install_cmd}"
+    eval "${install_cmd}"
     if [[ $? -eq 0 ]]; then
-        log.success "NapCat Docker 容器已启动。"
-        echo "提示: 可以使用 'docker logs napcat' 查看启动日志和WebUI Token。"
+        log.success "NapCat Docker 非交互安装已完成。"
+        log.info "提示: 可以使用 'docker logs napcat' 查看启动日志和WebUI Token。"
         return 0
     else
-        log.error "Docker 容器启动失败。"
+        log.error "NapCat Docker 安装失败。"
         return 1
     fi
 }
+#######################################
 
 #######################################
 Get-Environment() {
@@ -1297,10 +1309,14 @@ detect_package_manager() {
 Get-Detailed-Environment() {
     Get-Environment  # 确保基础信息已获取
     
-    local arch="$(uname -m)"
-    local kernel="$(uname -r)"
-    local shell_name="$(basename "${SHELL}")"
-    local user="$(whoami 2>/dev/null || echo "unknown")"
+    local arch
+    local kernel
+    local shell_name
+    local user
+    arch="$(uname -m)"
+    kernel="$(uname -r)"
+    shell_name="$(basename "${SHELL}")"
+    user="$(whoami 2>/dev/null || echo "unknown")"
     
     cat << EOF
 === 环境检测报告 ===
@@ -1328,7 +1344,10 @@ EOF
         log "虚拟化环境: 是"
     fi
 }
+#########################################
 
+
+#################################
 # ======================== 配置部分 ========================
 declare -A NETWORK_PROXY_CONFIGS
 
@@ -1506,19 +1525,18 @@ find_best_proxy() {
 
 # 格式化速度显示
 format_speed() {
-    local speed="$1"
-    
-    if [[ -z "$speed" ]] || [[ "$speed" -eq 0 ]]; then
-        echo "0 B/s"
-        return
-    fi
-    
-    if [[ $speed -gt 1048576 ]]; then
-        printf "%.2f MB/s" "$(echo "scale=2; $speed / 1048576" | bc)"
-    elif [[ $speed -gt 1024 ]]; then
-        printf "%.2f KB/s" "$(echo "scale=2; $speed / 1024" | bc)"
+    local speed_bps=$1
+    if (( speed_bps > 1048576 )); then
+        # MB/s
+        local speed_mbs=$((speed_bps / 1048576))
+        echo "${speed_mbs} MB/s"
+    elif (( speed_bps > 1024 )); then
+        # KB/s
+        local speed_kbs=$((speed_bps / 1024))
+        echo "${speed_kbs} KB/s"
     else
-        printf "%d B/s" "$speed"
+        # B/s
+        echo "${speed_bps} B/s"
     fi
 }
 
@@ -1646,7 +1664,7 @@ network_test() {
     check_url=$(get_network_config "$target_type" "check_url")
     
     local timeout=10
-    local target_proxy=""
+    target_proxy=""
     
     log "开始网络测试: $target_type..."
     log "命令行传入代理参数: '$proxy_num_arg'"
@@ -1674,7 +1692,7 @@ network_test() {
     esac
     
     # 设置全局变量（保持与原函数兼容）
-    target_proxy="$target_proxy"
+    #target_proxy="$target_proxy"
     
     # 返回结果（也可以通过全局变量使用）
     echo "$target_proxy"
@@ -1754,15 +1772,428 @@ validate_specific_proxy() {
         return 1
     fi
 }
+#########################
+
+#########################
+# 旧版napcat控制脚本生成
+__NAPCAT__() {
+    cat >"/usr/local/bin/napcat" <<'NAPCAT'
+#!/bin/bash
+
+MAGENTA='\033[0;1;35;95m'
+RED='\033[0;1;31;91m'
+YELLOW='\033[0;1;33;93m'
+GREEN='\033[0;1;32;92m'
+CYAN='\033[0;1;36;96m'
+BLUE='\033[0;1;34;94m'
+NC='\033[0m'
+
+QQ=$2
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+CMD="sudo /usr/bin/xvfb-run -a qq --no-sandbox -q ${QQ}"
+PID_FILE="/var/run/napcat_${QQ}.pid"
+LOG_FILE="/var/log/napcat_${QQ}.log"
+
+start() {
+    if [ -z "${QQ}" ]; then
+        echo -e "${RED}请传入QQ号,如${NC}${GREEN} $0 start 3116556127${NC}"
+        exit 1
+    fi
+    if [ -f "${PID_FILE}" ] && sudo ps aux | grep -v "grep" | grep -q "qq --no-sandbox -q ${QQ}" > /dev/null 2>&1; then
+        echo -e "${RED}服务已运行 (PID: $(cat "${PID_FILE}"))${NC}"
+    else
+        touch "${PID_FILE}"
+        cp -f /opt/QQ/resources/app/app_launcher/napcat/config/napcat.json /opt/QQ/resources/app/app_launcher/napcat/config/napcat_${QQ}.json
+        echo -e "${MAGENTA}启动 napcat 服务中 QQ: ${QQ}...${NC}"
+        exec ${CMD} >> "${LOG_FILE}" 2>&1 &
+        echo $! > "${PID_FILE}"
+        echo -e "${GREEN}服务已启动 (PID: $(cat "${PID_FILE}"))${NC}"
+    fi
+}
+
+stop() {
+    if [ -z "${QQ}" ]; then
+        pid_files=($(sudo find /var/run/ -name 'napcat_*.pid'))
+        for pid_file in "${pid_files[@]}"; do
+            echo -e "${MAGENTA}停止 napcat 服务 (PID: $(cat "${pid_file}"))...${NC}"
+            QQ=$(basename "${pid_file}" .pid | sed 's/napcat_//')
+            sudo pkill -f "qq --no-sandbox -q ${QQ}" && sudo rm -f "${pid_file}"
+        done
+        echo -e "${RED}所有服务已停止${NC}"
+        return 0
+    fi
+
+    if [ ! -f "${PID_FILE}" ] || ! sudo ps aux | grep -v "grep" | grep -q "qq --no-sandbox -q ${QQ}" > /dev/null 2>&1; then
+        echo -e "${GREEN}服务未运行${NC}"
+        sudo rm -f "${PID_FILE}" && sudo rm -f "${LOG_FILE}"
+    else
+        echo -e "${MAGENTA}停止 napcat 服务中 QQ: ${QQ}...${NC}"
+        sudo pkill -f "qq --no-sandbox -q ${QQ}" && sudo rm -f "${PID_FILE}" && sudo rm -f "${LOG_FILE}"
+        echo -e "${RED}服务已停止${NC}"
+    fi
+}
+
+restart() {
+    if [ -z "${QQ}" ]; then
+        echo -e "${RED}请传入QQ号,如${NC}${GREEN} $0 restart 3116556127${NC}"
+        exit 1
+    fi
+
+    echo -e "${MAGENTA}重启 napcat 服务中 QQ: ${QQ}...${NC}"
+    stop
+    sleep 2
+    start
+}
+
+status() {
+    if [ -z "${QQ}" ]; then
+        echo -e "${YELLOW}当前正在运行的服务有:${NC}"
+        for pid_file in /var/run/napcat_*.pid; do
+            if [ -f "${pid_file}" ]; then
+                QQ=$(basename "${pid_file}" .pid | sed 's/napcat_//')
+                if sudo ps aux | grep -v "grep" | grep -q "qq --no-sandbox -q ${QQ}" > /dev/null 2>&1; then
+                    echo -e "${GREEN}${QQ} 运行中 (PID: $(cat "${pid_file}"))${NC}"
+                else
+                    echo -e "${RED}${QQ} 未运行${NC}"
+                fi
+            fi
+        done
+    else
+        if [ -f "${PID_FILE}" ] && sudo ps aux | grep -v "grep" | grep -q "qq --no-sandbox -q ${QQ}" > /dev/null 2>&1; then
+            echo -e "${GREEN}服务运行中 QQ: ${QQ} (PID: $(cat "${PID_FILE}"))${NC}"
+        else
+            echo -e "${RED}服务未运行 QQ: ${QQ}${NC}"
+        fi
+    fi
+}
+
+log() {
+    if [ -z "${QQ}" ]; then
+        echo -e "${RED}请传入QQ号,如${NC}${GREEN} $0 log 3116556127${NC}"
+        exit 1
+    fi
+
+    if [ -f "${LOG_FILE}" ]; then
+        tail -n 50 "${LOG_FILE}"
+        tail -f "${LOG_FILE}"
+    else
+        echo -e "${RED}日志文件不存在: ${LOG_FILE}${NC}"
+    fi
+}
+
+startup() {
+    if [ -z "${QQ}" ]; then
+        echo -e "${RED}请传入QQ号,如${NC}${GREEN} $0 startup 3116556127${NC}"
+        exit 1
+    fi
+
+    if [ -f "/etc/init.d/nc_${QQ}" ]; then
+        echo -e "${GREEN}已存在QQ${QQ}的开机自启动服务${NC}"
+        exit 1
+    fi
+
+cat <<EOF > "/etc/init.d/nc_${QQ}"
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides:          nc_${QQ}
+# Required-Start:    \${network} \${remote_fs} \${syslog}
+# Required-Stop:     \${network} \${remote_fs} \${syslog}
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Manage nc_${QQ} service
+# Description:       Start of nc_${QQ} service.
+### END INIT INFO
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:bin:/usr/sbin:/usr/bin
+CMD="sudo /usr/bin/xvfb-run -a qq --no-sandbox -q ${QQ}"
+PID_FILE="/var/run/napcat_${QQ}.pid"
+LOG_FILE="/var/log/napcat_${QQ}.log"
+
+start() {
+    touch "\${PID_FILE}"
+    exec \${CMD} >> "\${LOG_FILE}" 2>&1 &
+    echo \$! > "\${PID_FILE}"
+    echo "nc sucess"
+}
+
+case "\$1" in
+    start)
+        start
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+
+exit 0
+EOF
+
+    sudo chmod +x /etc/init.d/nc_${QQ}
+    sudo update-rc.d nc_${QQ} defaults
+    echo -e "${MAGENTA}已添加QQ ${QQ}的开机自启动服务${NC}"
+}
+
+startdown() {
+    if [ -z "${QQ}" ]; then
+        echo -e "${RED}请传入QQ号,如${NC}${GREEN} $0 startdown 3116556127${NC}"
+        exit 1
+    fi
+
+    if [ ! -f "/etc/init.d/nc_${QQ}" ]; then
+        echo -e "${RED}不存在QQ ${QQ}的开机自启动服务${NC}"
+        exit 1
+    fi
+
+    sudo update-rc.d nc_${QQ} remove
+    sudo rm -f /etc/init.d/nc_${QQ}
+    echo -e "${MAGENTA}已取消QQ ${QQ}的开机自启动服务${NC}"
+}
+
+update() {
+    stop
+    curl -sSL https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh | sudo bash -s -- --docker n --cli y
+}
+
+rebuild() {
+    stop
+    curl -sSL https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh | sudo bash -s -- --docker n --cli y --force
+}
+
+remove() {
+    stop
+    if command -v apt &> /dev/null; then
+        sudo apt remove linuxqq -y
+    elif command -v yum &> /dev/null; then
+        sudo yum remove linuxqq -y
+    fi
+
+    if command -v dpkg &> /dev/null; then
+        sudo dpkg -P linuxqq
+    elif command -v rpm &> /dev/null; then
+        sudo rpm -e --nodeps linuxqq
+    fi
+
+    sudo rm -rf /opt/QQ
+    sudo rm -rf /root/.config/QQ
+    sudo rm -f /usr/local/bin/napcat
+    echo "卸载完成"
+    echo -e "${MAGENTA}江${RED}湖${GREEN}不${CYAN}散，${MAGENTA}有${RED}缘${GREEN}再${CYAN}见。${NC}"
+}
+
+help() {
+    clear
+    echo -e " ${MAGENTA}┌${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}${RED}─┐${NC}"
+    echo -e " ${MAGENTA}│${RED}  ${YELLOW}  ${GREEN}  ${CYAN}  ${BLUE}  ${MAGENTA}  ${RED}  ${YELLOW}  ${GREEN}  ${CYAN}  ${BLUE}  ${MAGENTA}  ${RED}  ${YELLOW}  ${GREEN}  ${CYAN}  ${BLUE}  ${MAGENTA}  ${RED}  ${YELLOW}  ${GREEN}  ${CYAN}  ${BLUE}  ${MAGENTA}  ${RED}  ${YELLOW}  ${GREEN}  ${CYAN}  ${BLUE}  ${MAGENTA}  ${RED}  ${YELLOW}  ${GREEN}  ${CYAN}  ${BLUE}  ${MAGENTA} ${RED}│${NC}"
+    echo -e " ${RED}│${YELLOW}██${GREEN}█╗${CYAN}  ${BLUE} █${MAGENTA}█╗${RED}  ${YELLOW}  ${GREEN} █${CYAN}██${BLUE}██${MAGENTA}╗ ${RED}  ${YELLOW}  ${GREEN}██${CYAN}██${BLUE}██${MAGENTA}╗ ${RED}  ${YELLOW}  ${GREEN} █${CYAN}██${BLUE}██${MAGENTA}█╗${RED}  ${YELLOW}  ${GREEN} █${CYAN}██${BLUE}██${MAGENTA}╗ ${RED}  ${YELLOW}  ${GREEN}██${CYAN}██${BLUE}██${MAGENTA}██${RED}╗${YELLOW}│${NC}"
+    echo -e " ${YELLOW}│${GREEN}██${CYAN}██${BLUE}╗ ${MAGENTA} █${RED}█║${YELLOW}  ${GREEN}  ${CYAN}██${BLUE}╔═${MAGENTA}═█${RED}█╗${YELLOW}  ${GREEN}  ${CYAN}██${BLUE}╔═${MAGENTA}═█${RED}█╗${YELLOW}  ${GREEN}  ${CYAN}██${BLUE}╔═${MAGENTA}══${RED}═╝${YELLOW}  ${GREEN}  ${CYAN}██${BLUE}╔═${MAGENTA}═█${RED}█╗${YELLOW}  ${GREEN}  ${CYAN}╚═${BLUE}═█${MAGENTA}█╔${RED}══${YELLOW}╝${YELLOW}│${NC}"
+    echo -e " ${GREEN}│${CYAN}██${BLUE}╔█${MAGENTA}█╗${RED} █${YELLOW}█║${GREEN}  ${CYAN}  ${BLUE}██${MAGENTA}██${RED}██${YELLOW}█║${GREEN}  ${CYAN}  ${BLUE}██${MAGENTA}██${RED}██${YELLOW}╔╝${GREEN}  ${CYAN}  ${BLUE}██${MAGENTA}║ ${RED}  ${YELLOW}  ${GREEN}  ${CYAN}  ${BLUE}██${MAGENTA}██${RED}██${YELLOW}█║${GREEN}  ${CYAN}  ${BLUE}  ${MAGENTA} █${RED}█║${YELLOW}  ${GREEN} ${GREEN}│${NC}"
+    echo -e " ${CYAN}│${BLUE}██${MAGENTA}║╚${RED}██${YELLOW}╗█${GREEN}█║${CYAN}  ${BLUE}  ${MAGENTA}██${RED}╔═${YELLOW}═█${GREEN}█║${CYAN}  ${BLUE}  ${MAGENTA}██${RED}╔═${YELLOW}══${GREEN}╝ ${CYAN}  ${BLUE}  ${MAGENTA}██${RED}║ ${YELLOW}  ${GREEN}  ${CYAN}  ${BLUE}  ${MAGENTA}██${RED}╔═${YELLOW}═█${GREEN}█║${CYAN}  ${BLUE}  ${MAGENTA}  ${RED} █${YELLOW}█║${GREEN}  ${CYAN} ${CYAN}│${NC}"
+    echo -e " ${BLUE}│${MAGENTA}██${RED}║ ${YELLOW}╚█${GREEN}██${CYAN}█║${BLUE}  ${MAGENTA}  ${RED}██${YELLOW}║ ${GREEN} █${CYAN}█║${BLUE}  ${MAGENTA}  ${RED}██${YELLOW}║ ${GREEN}  ${CYAN}  ${BLUE}  ${MAGENTA}  ${RED}╚█${YELLOW}██${GREEN}██${CYAN}█╗${BLUE}  ${MAGENTA}  ${RED}██${YELLOW}║ ${GREEN} █${CYAN}█║${BLUE}  ${MAGENTA}  ${RED}  ${YELLOW} █${GREEN}█║${CYAN}  ${BLUE} ${BLUE}│${NC}"
+    echo -e " ${MAGENTA}│${RED}╚═${YELLOW}╝ ${GREEN} ╚${CYAN}══${BLUE}═╝${MAGENTA}  ${RED}  ${YELLOW}╚═${GREEN}╝ ${CYAN} ╚${BLUE}═╝${MAGENTA}  ${RED}  ${YELLOW}╚═${GREEN}╝ ${CYAN}  ${BLUE}  ${MAGENTA}  ${RED}  ${YELLOW} ╚${GREEN}══${CYAN}══${BLUE}═╝${MAGENTA}  ${RED}  ${YELLOW}╚═${GREEN}╝ ${CYAN} ╚${BLUE}═╝${MAGENTA}  ${RED}  ${YELLOW}  ${GREEN} ╚${CYAN}═╝${BLUE}  ${MAGENTA} ${MAGENTA}│${NC}"
+    echo -e " ${RED}└${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}──${YELLOW}──${GREEN}──${CYAN}──${BLUE}──${MAGENTA}──${RED}${YELLOW}─┘${NC}"
+    echo
+    echo -e "${MAGENTA}napcat 控制脚本${NC}"
+    echo
+    echo -e "${MAGENTA}使用方法: ${NC}"
+    echo -e "${CYAN}  napcat {start|stop|restart|status|log|startup|startdown} QQ${NC}"
+    echo -e "${CYAN}  napcat {status|update|rebuild|remove|help|oldhelp}${NC}"
+    echo
+    echo -e " ${GREEN}   napcat start {QQ}                     ${MAGENTA}启动对应QQ号的NAPCAT${NC}"
+    echo -e " ${GREEN}   napcat stop {QQ}[可选]                ${MAGENTA}停止所有[对应QQ号]的NAPCAT及DLC${NC}"
+    echo -e " ${GREEN}   napcat restart {QQ}                   ${MAGENTA}重启对应QQ号的NAPCAT${NC}"
+    echo -e " ${GREEN}   napcat status {QQ}[可选]              ${MAGENTA}查看所有[对应QQ号]的NAPCAT${NC}"
+    echo -e " ${GREEN}   napcat log {QQ}                       ${MAGENTA}查看对应QQ号的NAPCAT日志${NC}"
+    echo -e " ${GREEN}   napcat startup {QQ}                   ${MAGENTA}添加开机自启动对应QQ号的NAPCAT及DLC${NC}"
+    echo -e " ${GREEN}   napcat startdown {QQ}                 ${MAGENTA}取消开机自启动对应QQ号的NAPCAT及DLC${NC}"
+    echo -e " ${GREEN}   napcat update                         ${MAGENTA}更新 NAPCAT及QQ${NC}"
+    echo -e " ${GREEN}   napcat rebuild                        ${MAGENTA}重建 NAPCAT及QQ${NC}"
+    echo -e " ${GREEN}   napcat remove                         ${MAGENTA}卸载 NAPCAT及QQ${NC}"
+    echo -e " ${GREEN}   napcat help                           ${MAGENTA}查看此帮助${NC}"
+    echo -e " ${GREEN}   napcat oldhelp                        ${MAGENTA}查看旧方法(若此脚本不生效)${NC}"
+}
+
+oldhelp() {
+    echo -e "输入${GREEN} xvfb-run -a qq --no-sandbox ${NC}命令启动。"
+    echo -e "保持后台运行 请输入${GREEN} screen -dmS napcat bash -c \"xvfb-run -a qq --no-sandbox\" ${NC}"
+    echo -e "后台快速登录 请输入${GREEN} screen -dmS napcat bash -c \"xvfb-run -a qq --no-sandbox -q QQ号码\" ${NC}"
+    echo -e "注意, 您可以随时使用${GREEN} screen -r napcat ${NC}来进入后台进程并使用${GREEN} ctrl + a + d ${NC}离开(离开不会关闭后台进程)。"
+    echo -e "停止后台运行 请输入${GREEN} screen -S napcat -X quit${NC}"
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart)
+        restart
+        ;;
+    status)
+        status
+        ;;
+    log)
+        log
+        ;;
+    startup)
+        startup
+        ;;
+    startdown)
+        startdown
+        ;;
+    update)
+        update
+        ;;
+    rebuild)
+        rebuild
+        ;;
+    remove)
+        remove
+        ;;
+    help)
+        help
+        exit 0
+        ;;
+    oldhelp)
+        oldhelp
+        exit 0
+        ;;
+    *)
+        help
+        exit 1
+        ;;
+esac
+
+exit 0
+NAPCAT
+    chmod +x "/usr/local/bin/napcat"
+    echo -e "${GREEN}napcat旧版控制脚本，已生成。${NC}"
+}
+
+#########################
+
+########################
+Read-UserConfigs(){
+    # 我们从最开始就读取用户输入并且我们缓存到~/.maibot_config中
+    local config_file="${HOME}/.maibot_config"
+    if [[ -f "${config_file}" ]]; then
+        # shellcheck disable=SC1090
+        source "${config_file}"
+    fi
+    echo "请配置NapCat相关参数，直接回车表示保持当前设置不变。"
+    read -r -p "请输入Bot(机器人)的QQ号 (当前: ${NAPCAT_QQ:-未设置}): " input_qq
+    if [[ -n "${input_qq}" ]]; then
+        export NAPCAT_QQ="${input_qq}"
+        echo "export NAPCAT_QQ='${input_qq}'" > "${config_file}"
+    fi
+    # read -r -p "请输入NapCat的运行模式 [ws/http] (当前: ${NAPCAT_MODE:-ws}): " input_mode
+    # if [[ -n "${input_mode}" ]]; then
+    #     export NAPCAT_MODE="${input_mode}"
+    #     echo "export NAPCAT_MODE='${input_mode}'" >> "${config_file}"
+    # fi
+    read -r -p "请输入NapCat的代理设置 [0/1/auto] (当前: ${NAPCAT_PROXY:-auto}): " input_proxy
+    if [[ -n "${input_proxy}" ]]; then
+        export NAPCAT_PROXY="${input_proxy}"
+        echo "export NAPCAT_PROXY='${input_proxy}'" >> "${config_file}"
+    fi
+}
+
+Creat-NapcatShellConfig(){
+    local qq_num="${1:-}"
+    local backup_file
+    backup_file="${HOME}/Napcat/config/onebot11_${qq_num}.json.bak_$(date +%Y%m%d_%H%M%S)"
+    if [[ -z "${qq_num}" ]]; then
+        log.error "QQ号为空，无法生成配置文件"
+        return 1
+    fi
+
+    mkdir -p "${HOME}/Napcat/config"
+    cp "${HOME}/Napcat/config/onebot11_${qq_num}.json" "${backup_file}" 2>/dev/null \
+        && log.info "备份旧的NapCat OneBot11配置文件到: ${backup_file}"
+    cat >"${HOME}/Napcat/config/onebot11_${qq_num}.json" <<EOF
+{
+  "network": {
+    "httpServers": [
+      {
+        "enable": true,
+        "name": "curl",
+        "host": "0.0.0.0",
+        "port": 3001,
+        "enableCors": true,
+        "enableWebsocket": true,
+        "messagePostFormat": "array",
+        "token": "",
+        "debug": false
+      }
+    ],
+    "httpSseServers": [],
+    "httpClients": [],
+    "websocketServers": [],
+    "websocketClients": [
+      {
+        "enable": true,
+        "name": "mmc",
+        "url": "ws://localhost:8095/",
+        "reportSelfMessage": false,
+        "messagePostFormat": "array",
+        "token": "",
+        "debug": false,
+        "heartInterval": 30000,
+        "reconnectInterval": 30000
+      }
+    ],
+    "plugins": []
+  },
+  "musicSignUrl": "",
+  "enableLocalFile2Url": false,
+  "parseMultMsg": false
+}
+EOF
+    
+    if [[ $? -eq 0 ]]; then
+        log.success "NapCat OneBot11 配置文件已覆盖: ${HOME}/napcat/config/onebot11_${qq_num}.json"
+        log.success "3001为Http Server端口，8095为NapCat WebSocket端口，请确保这两个端口未被占用。"
+        return 0
+    else
+        log.error "配置文件生成失败"
+        return 1
+    fi
+}
+#########################
 # Get-MaiMaiRepository
+# local qq_env="${NAPCAT_QQ:-}"
+# local mode_env="${NAPCAT_MODE:-ws}"
+# local proxy_env="${NAPCAT_PROXY:-auto}"
 main(){
     Get-Environment
     Update-PackageSources
-    Install-Napcat
-    Install-Package git wget unzip bc
-    {
-        network_test
-        Get-MaiMaiRepository
+    Read-UserConfigs
+    Install-Napcat && {
+        if ! command -v napcat &> /dev/null; then
+            __NAPCAT__ # 旧版napcat控制脚本生成
+        fi
+    }
+    Install-Package git wget unzip
+    if [[ "${use_shell_install}" == true ]];then
+        Creat-NapcatShellConfig "${NAPCAT_QQ:-}"
+    fi
+    { 
+        network_test # 自动选择最佳代理 target_proxy 全局变量被设置
+        Get-MaiMaiRepository MaiBot main git "${target_proxy}" "" # -> ./tmp/MaiM-with-u/MaiBot
+        Get-MaiMaiRepository Adapter main git "${target_proxy}" "" # -> ./tmp/MaiM-with-u/MaiBot-Napcat-Adapter
+        mkdir -p "${HOME}/.local/MaiM-with-u"
+        cp -rf ./tmp/MaiM-with-u/MaiBot "${HOME}/.local/MaiM-with-u/MaiBot"
+        cp -rf ./tmp/MaiM-with-u/MaiBot-Napcat-Adapter "${HOME}/.local/MaiM-with-u/MaiBot-Napcat-Adapter"
+        log.info "MaiM-with-u 及其组件已复制到 ${HOME}/.local/MaiM-with-u/ 目录下"
+        sed -i "s/private_list_type = \"whitelist\"/private_list_type = \"blacklist\"/" "${HOME}/MaiM-with-u/MaiBot-Napcat-Adapter/template/template_config.toml"
+        sed -i "s/group_list_type = \"whitelist\"/group_list_type = \"blacklist\"/" "${HOME}/MaiM-with-u/MaiBot-Napcat-Adapter/template/template_config.toml"
+        sed -i "s/qq_account = \"1145141919810\"/qq_account = \"${NAPCAT_QQ:-1145141919810}\"/" "${HOME}/MaiM-with-u/MaiBot/template/bot_config_template.toml"
+        log.info "已将adapter设置为黑名单模式，且已设置Bot的QQ号为 ${NAPCAT_QQ:-1145141919810}"
+        cp "${HOME}/MaiM-with-u/MaiBot-Napcat-Adapter/template/template_config.toml" "${HOME}/MaiM-with-u/MaiBot-Napcat-Adapter/config.toml"
+        cp "${HOME}/MaiM-with-u/MaiBot/template/bot_config_template.toml" "${HOME}/MaiM-with-u/MaiBot/config/bot_config.toml"
+        cp "${HOME}/MaiM-with-u/MaiBot/template/model_config_template.toml" "${HOME}/MaiM-with-u/MaiBot/config/model_config.toml"
+        log.info "adapter已设置为黑名单模式，如需修改请编辑 ${HOME}/MaiM-with-u/MaiBot-Napcat-Adapter/config.toml 文件"
     }
 }
 main
