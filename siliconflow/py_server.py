@@ -8,6 +8,10 @@ from datetime import datetime
 import threading
 import socket
 import time
+import os
+
+# 全局调试模式标志
+DEBUG_MODE = os.environ.get('DEBUG', 'false').lower() == 'true'
 
 class PersistentSiliconFlowHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
@@ -39,6 +43,14 @@ class PersistentSiliconFlowHandler(http.server.BaseHTTPRequestHandler):
                 self.close_connection = True
     
     def do_POST(self):
+        # 读取请求体
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length) if content_length > 0 else b''
+        
+        # 调试模式：显示请求详情
+        if DEBUG_MODE:
+            self._log_request_details(body)
+        
         if self.path == '/v1/chat/completions':
             # 随机选择状态码
             status_codes = [
@@ -89,7 +101,11 @@ class PersistentSiliconFlowHandler(http.server.BaseHTTPRequestHandler):
             try:
                 self.wfile.write(response_body)
                 self.wfile.flush()  # 重要：确保数据被发送
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 响应发送完成 - 状态码: {status_code}, 内容长度: {len(response_body)}")
+                
+                if DEBUG_MODE:
+                    self._log_response_details(status_code, response_body)
+                else:
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 响应发送完成 - 状态码: {status_code}, 内容长度: {len(response_body)}")
             except (BrokenPipeError, ConnectionResetError) as e:
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 写入响应时连接已关闭: {e}")
             
@@ -138,6 +154,54 @@ class PersistentSiliconFlowHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         """自定义日志格式，减少冗余输出"""
         pass
+    
+    def _log_request_details(self, body):
+        """显示请求的详细信息"""
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        client_ip = self.client_address[0]
+        
+        print(f"\n{'='*70}")
+        print(f"[{timestamp}] ===== 请求详情 (请求#{self.request_count}) =====")
+        print(f"客户端: {client_ip}:{self.client_address[1]}")
+        print(f"方法: {self.command}")
+        print(f"路径: {self.path}")
+        print(f"协议: {self.request_version}")
+        
+        # 显示请求头
+        print(f"\n请求头:")
+        for header, value in self.headers.items():
+            print(f"  {header}: {value}")
+        
+        # 显示请求体
+        if body:
+            print(f"\n请求体:")
+            try:
+                request_json = json.loads(body.decode('utf-8'))
+                print(json.dumps(request_json, indent=2, ensure_ascii=False))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                print(f"  {body[:200].decode('utf-8', errors='ignore')}...")
+        else:
+            print(f"\n请求体: 无")
+        
+        print(f"{'='*70}\n")
+    
+    def _log_response_details(self, status_code, response_body):
+        """显示响应的详细信息"""
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        print(f"\n{'-'*70}")
+        print(f"[{timestamp}] ===== 响应详情 =====")
+        print(f"状态码: {status_code}")
+        print(f"内容长度: {len(response_body)} 字节")
+        
+        print(f"\n响应体:")
+        try:
+            response_json = json.loads(response_body.decode('utf-8'))
+            print(json.dumps(response_json, indent=2, ensure_ascii=False))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            print(f"  {response_body[:200].decode('utf-8', errors='ignore')}...")
+        
+        print(f"{'-'*70}\n")
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
@@ -191,6 +255,15 @@ if __name__ == '__main__':
     print("启动 SiliconFlow 双协议模拟服务（修复版）")
     print("HTTP 地址: http://localhost:8080/v1/chat/completions")
     print("HTTPS 地址: https://localhost:8443/v1/chat/completions")
+    print("-" * 60)
+    
+    if DEBUG_MODE:
+        print("✓ 调试模式已启用 - 将显示请求和响应的详细信息")
+        print("提示: 设置 DEBUG=false 或删除环境变量可关闭调试模式")
+    else:
+        print("调试模式已禁用 - 仅显示基本日志")
+        print("提示: 运行 'set DEBUG=true' 可启用调试模式")
+    
     print("-" * 60)
     
     if not generate_self_signed_cert():

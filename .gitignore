@@ -2,3 +2,4 @@ MaiBot
 *.back
 test*.sh
 *.log
+nc_ws

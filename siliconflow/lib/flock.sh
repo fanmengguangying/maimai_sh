@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # we don't care about those undefined functions,we'll source to define them
 
@@ -50,7 +50,7 @@ release_lock() {
         read -r current_content<$lock_file
         if [[ "$current_content" == "$lock_content" ]]; then
             rm -f "${lock_file}" 2>/dev/null
-            rm -r "${lock_file}.d" 2>/dev/null
+            rmdir "${lock_file}.d" 2>/dev/null
             log.debug "release_lock: 成功释放锁，文件: $lock_file" >&2
         else
             log.warn "release_lock: 锁内容不匹配，不释放锁，文件: $lock_file" >&2
