@@ -92,7 +92,7 @@ HTTP_phrase_http_heads(){
         [[ -z "$HTTP_line" ]] && break
         local header_name="${HTTP_line%%: *}"
         local header_value="${HTTP_line#*: }"
-        header_name="${header_name,,}"
+        # header_name="${header_name,,}" # 转小写
         HTTP_heads["${header_name}"]="$header_value"
     done
 }
@@ -108,8 +108,8 @@ HTTP_phrase_http_body(){
 	}
 	local HTTP_version="${HTTP_heads["http_version"]}"
 	#print_assoc_array HTTP_heads >&2
-    local content_length="${HTTP_heads["content-length"]}"
-    local transfer_encoding="${HTTP_heads["transfer-encoding"]}"
+    local content_length="${HTTP_heads["Content-Length"]}"
+    local transfer_encoding="${HTTP_heads["Transfer-Encoding"]}"
     
     # 1. 如果有Content-Length头
     if [[ -n "$content_length" ]] && [[ "$content_length" =~ ^[0-9]+$ ]]; then
@@ -148,9 +148,9 @@ HTTP_phrase_http_body(){
         HTTP_body="$chunk_body"
     
     # 3. 如果是multipart/form-data边界传输
-    elif [[ "${HTTP_heads["content-type"]}" == *"multipart/form-data"* ]]; then
+    elif [[ "${HTTP_heads["Content-Type"]}" == *"multipart/form-data"* ]]; then
         # 提取boundary
-        local content_type="${HTTP_heads["content-type"]}"
+        local content_type="${HTTP_heads["Content-Type"]}"
         local boundary=""
         
         if [[ "$content_type" =~ boundary=([^[:space:];]+) ]]; then
@@ -201,7 +201,7 @@ HTTP_phrase_http_body(){
     fi
     
     # 解码URL编码的消息体（如果是application/x-www-form-urlencoded）
-    if [[ "${HTTP_heads["content-type"]}" == *"application/x-www-form-urlencoded"* ]] && \
+    if [[ "${HTTP_heads["Content-Type"]}" == *"application/x-www-form-urlencoded"* ]] && \
        [[ -n "$HTTP_body" ]]; then
         # URL解码函数
         _urldecode() {

@@ -15,13 +15,13 @@ if [[ ! $inside_ncat == true ]]; then
 	fi
 	mkdir -p "/dev/shm/siliconflow_$PORT"
 	cp "$TOKEN_FILE" "/dev/shm/siliconflow_$PORT/siliconflow_tokens.txt"
-	USING_TOKEN_FILE="/dev/shm/siliconflow_$PORT/using_tokens.txt"
+	USING_TOKEN_FILE="/dev/shm/siliconflow_$PORT/using_tokens.txt" # 暂时无效
 	TOKEN_FILE="/dev/shm/siliconflow_$PORT/siliconflow_tokens.txt"
 	INDEX_FILE="/dev/shm/siliconflow_$PORT/index"
 	export TOKEN_FILE
 	export INDEX_FILE
-	export USING_TOKEN_FILE
-	echo "启动WebSocket服务器在端口 $PORT"
+	export USING_TOKEN_FILE # 暂时无效
+	echo "启动轨迹流动代理服务器在端口 $PORT"
 	echo "按Ctrl+C停止服务器"
 
 	# 使用ncat监听指定端口
@@ -45,8 +45,8 @@ HTTP_do_POST() {
 	#print_assoc_array HTTP_heads >&2
 	#printf '%s\n' "$HTTP_body" >&2
 	rebuild_http_heads
-	# exec 3<>/dev/tcp/api.siliconflow.cn/80
-	exec 3<>/dev/tcp/localhost/8080
+	exec 3<>/dev/tcp/api.siliconflow.cn/80
+	# exec 3<>/dev/tcp/localhost/8080
 	# 发送HTTP请求
 	# HTTP_send(){
 	# 标准输入输出
@@ -67,17 +67,27 @@ HTTP_do_POST() {
 	# 构建HTTP响应
 	HTTP_send siliconflow_response_heads siliconflow_response_body # 发送回客户端
 	log.trace "已发送HTTP响应回客户端" >&2
-	if [[ "${siliconflow_response_heads[http_code]}" == "429" ]]; then
-		log.warn "收到429响应，更新Token索引" >&2
-		update_siliconflow_token_index
-	fi
+	case "${siliconflow_response_heads[http_code]}" in
+		429|503)
+			log.warn "收到429响应，更新Token索引" >&2
+			update_siliconflow_token_index
+			;;
+		403)
+			log.error "收到403响应，表示禁止访问，可能是Token无效，正在从TOKEN_FILE中删除对应的key" >&2
+			local token_to_remove
+			token_to_remove=$(get_siliconflow_token)
+			sed -i "/^$token_to_remove/d" "$TOKEN_FILE"
+			log.error "已从TOKEN_FILE中删除无效的Token，Token文件已更新" >&2
+			;;
+	esac
 	return $?
 }
 
 rebuild_http_heads() {
-	siliconflow_heads["host"]="api.siliconflow.cn"
-	siliconflow_heads["connection"]="close"
-	siliconflow_heads["authorization"]="Bearer $(get_siliconflow_token)"
+	siliconflow_heads["Host"]="api.siliconflow.cn"
+	siliconflow_heads["Connection"]="Close"
+	# siliconflow_heads["Connection"]="Keep-Alive"
+	siliconflow_heads["Authorization"]="Bearer $(get_siliconflow_token)"
 }
 
 get_siliconflow_token() {
@@ -132,3 +142,4 @@ siliconflow_response_body=""
 HTTP_phrase_http_heads siliconflow_heads
 HTTP_phrase_http_body siliconflow_heads siliconflow_body
 log.info "连接关闭，等待下一个连接..." >&2
+# print_assoc_array siliconflow_heads >&2
